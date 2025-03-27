@@ -6,8 +6,7 @@ import depthai as dai
 import cv2
 from pymycobot.genre import Angle, Coord
 from pymycobot import MyCobot280
-from sklearn.linear_model import LinearRegression
-from sklearn.preprocessing import PolynomialFeatures
+from sklearn.linear_model import Ridge
 from sklearn.metrics import mean_squared_error
 
 # Define a standby (home) position
@@ -18,110 +17,128 @@ BATTERY_BIN_COORD = [194.0, -142.8, 144.9, 152.06, -20.98, 1.67]  # Regular batt
 CBATTERY_BIN_COORD = [99.8, -186.7, 162.6, 172.39, -2.74, -14.16]  # CBattery bin
 
 # Fixed orientation angles for picking and placing
-PICK_ORIENTATION = [175.82, -0.64, -3.97]  # Fixed pitch, roll, yaw for picking
+PICK_ORIENTATION = [180, -0, 45]  # Fixed pitch, roll, yaw for picking
 PLACE_ORIENTATION = [152.06, -20.98, 1.67]  # Fixed pitch, roll, yaw for placing
 
 
-# Polynomial transformation setup
-def transform_camera_to_robot_poly(eye_coords, hand_coords, degree=2):
+# Linear Ridge transformation setup (replacing polynomial method)
+def transform_camera_to_robot(eye_coords, hand_coords):
     """
-    Creates a polynomial regression model for camera to robot coordinate transformation
-
+    Transforms camera coordinates to robot coordinates using a linear regression model.
+   
     Args:
-        eye_coords: Camera coordinates as a numpy array of shape (n, 3)
-        hand_coords: Robot coordinates as a numpy array of shape (n, 3)
-        degree: Degree of polynomial features (default=2)
-
+        eye_coords (np.array): Array of camera coordinates (N x 3).
+        hand_coords (np.array): Array of corresponding robot coordinates (N x 3).
+   
     Returns:
-        transform_func: Function to transform new camera coordinates to robot coordinates
-        models: The trained models for each axis
+        function: A function that takes camera coordinates and returns transformed robot coordinates.
     """
-    poly = PolynomialFeatures(degree=degree)
-    eye_poly = poly.fit_transform(eye_coords)
-
-    model_x = LinearRegression()
-    model_y = LinearRegression()
-    model_z = LinearRegression()
-
-    model_x.fit(eye_poly, hand_coords[:, 0])
-    model_y.fit(eye_poly, hand_coords[:, 1])
-    model_z.fit(eye_poly, hand_coords[:, 2])
-
+    # Train separate Ridge regression models for each axis (x, y, z)
+    model_x = Ridge(alpha=1.0)
+    model_y = Ridge(alpha=1.0)
+    model_z = Ridge(alpha=1.0)
+   
+    model_x.fit(eye_coords, hand_coords[:, 0])
+    model_y.fit(eye_coords, hand_coords[:, 1])
+    model_z.fit(eye_coords, hand_coords[:, 2])
+   
     def transform(camera_points):
-        """Transform camera coordinates to robot coordinates using the trained models"""
+        """
+        Transforms camera points to robot points using the trained models.
+       
+        Args:
+            camera_points (np.array): Array of camera coordinates to transform (M x 3).
+       
+        Returns:
+            np.array: Array of transformed robot coordinates (M x 3).
+        """
         # Ensure camera_points is a 2D array
         if camera_points.ndim == 1:
             camera_points = camera_points.reshape(1, -1)
-
-        camera_points_poly = poly.transform(camera_points)
-        transformed_x = model_x.predict(camera_points_poly)
-        transformed_y = model_y.predict(camera_points_poly)
-        transformed_z = model_z.predict(camera_points_poly)
-
+           
+        transformed_x = model_x.predict(camera_points)
+        transformed_y = model_y.predict(camera_points)
+        transformed_z = model_z.predict(camera_points)
+       
         return np.column_stack((transformed_x, transformed_y, transformed_z))
-
-    return transform, (model_x, model_y, model_z, poly)
+   
+    return transform
 
 
 # Example calibration data (replace with your actual data if needed)
 hand_coords = np.array([
-    [275.0, -12.1, 103.3],
-    [269.3, -16.5, 135.2],
-    [92.8, 9.2, 113.3],
-    [197.4, -97.2, 104.2],
-    [207.2, -91.7, 172.0],
-    [229.0, 165.9, 100.1],
-    [228.6, 164.4, 133.0],
-    [149.0, 152.3, 233.7],
-    [277.1, 18.8, 85.9],
-    [95.5, 158.0, 91.8]
+    [98.3, 176.4, 101.4],
+    [246.0, 150.3, 101.2],
+    [246.0, 150.3, 101.2],
+    #[120.0, 16.5, 94.6], * # Really Close to robotic base
+    [98.7, 150.8, 102.6],
+    [239.8, -56.2, 99.5],
+    [141.3, -82.5, 104.5],
+    [139.3, -71.0, 103.0],
+    [37.1, 193.6, 99.8],
+    [90.5, 99.8, 104.5],
+    [206.9, 66.0, 176.6],
+    [65.4, 155.4, 176.5],
+    [182.2, -42.8, 146.5],
+    [196.1, 163.6, 142.1],
+    [262.9, -88.5, 96.0],
+    [197.1, 14.7, 103.6]
 ])
 
 eye_coords = np.array([
-    [66, -56, 575],
-    [75, -16, 575],
-    [170, -97, 435],
-    [191, -66, 575],
-    [191, 10, 597],
-    [-51, -79, 460],
-    [-53, -42, 460],
-    [14, 40, 375],
-    [54, -66, 575],
-    [30, -116, 343]
-])
+    [1,-112,343],
+    [-55, -81, 480],
+    [71, -74, 510],
+    #[149, -94, 436]*, # Really Close to robotic base
+    [24, -108, 358],
+    [122.5, -61, 597],
+    [203, -73.5, 539],
+    [197, -76, 520],
+    [23, -111, 283],
+    [70, -105, 384],
+    [39.5, -7, 474],
+    [35, -43.5, 316],
+    [149, -29.5, 530],
+    [-35.5, -51.5, 416],
+    [138, -51, 625],
+    [86.5, -74.5, 514.5]
+    ])
 
-# Create the transformation function
-transform_func, models = transform_camera_to_robot_poly(eye_coords, hand_coords, degree=2)
+# Create the transformation function (updated to use Ridge method)
+transform_func = transform_camera_to_robot(eye_coords, hand_coords)
 
 
-# Function to transform coordinates from camera to robot space
+# Function to transform coordinates from camera to robot space (simplified)
 def transform_point(cam_point):
-    """Transform point from camera coordinates to robot coordinates using polynomial regression"""
+    """Transform point from camera coordinates to robot coordinates using Ridge regression"""
     # Ensure cam_point is a numpy array
     cam_point_np = np.array(cam_point)
-
-    # Apply transformation using the polynomial regression model
+    # Apply transformation using the ridge regression model
     result = transform_func(cam_point_np.reshape(1, -1))
-
+   
+    # Enforce minimum Z value of 105
+    if result[0][2] < 105:
+        result[0][2] = 105
+   
     # Return the result as a 1D array
     return result[0]
 
 
 # Function to check if coordinate values are within the safe working range
 def is_valid_coord(coord):
-    x, y, z, rx, ry, rz = coord
-    if not (-281.45 <= x <= 281.45):  # x range
-        return False
-    if not (-281.45 <= y <= 281.45):  # y range
-        return False
-    if not (-70 <= z <= 412.67):  # z range
-        return False
-    if not (-180 <= rx <= 180):  # rx range
-        return False
-    if not (-180 <= ry <= 180):  # ry range
-        return False
-    if not (-180 <= rz <= 180):  # rz range
-        return False
+#    x, y, z, rx, ry, rz = coord
+#    if not (-281.45 <= x <= 281.45):  # x range
+#        return False
+#    if not (-281.45 <= y <= 281.45):  # y range
+#        return False
+#    if not (-70 <= z <= 412.67):  # z range
+#        return False
+#    if not (-180 <= rx <= 180):  # rx range
+#        return False
+#    if not (-180 <= ry <= 180):  # ry range
+#        return False
+#    if not (-180 <= rz <= 180):  # rz range
+#        return False
     return True
 
 
@@ -160,9 +177,10 @@ def setup_vision_pipeline():
     stereo.setDefaultProfilePreset(dai.node.StereoDepth.PresetMode.HIGH_ACCURACY)
     stereo.setLeftRightCheck(True)
     stereo.setDepthAlign(dai.CameraBoardSocket.CAM_B)
+    stereo.setMedianFilter(dai.MedianFilter.KERNEL_3x3)
 
     # YOLO specific settings
-    spatialDetectionNetwork.setBlobPath(r"/home/er/Downloads/battery.blob")
+    spatialDetectionNetwork.setBlobPath(r"/home/er/Downloads/BatteryV2.blob")
     spatialDetectionNetwork.setConfidenceThreshold(0.2)
     spatialDetectionNetwork.input.setBlocking(False)
     spatialDetectionNetwork.setBoundingBoxScaleFactor(0.5)
@@ -227,6 +245,11 @@ def pick_and_place_battery(mc, camera_coords, is_cbattery=False):
     print(f"Camera coordinates: {camera_coords}")
     print(f"Transformed robot coordinates: {robot_xyz}")
 
+    # Create coordinates for hovering position (60 units above the target)
+    hover_xyz = robot_xyz.copy()
+    hover_xyz[2] += 60  # Add 60 units to the Z coordinate for hovering
+    hover_coords = list(hover_xyz) + PICK_ORIENTATION
+
     # Create full 6D coordinates with fixed orientation for picking
     pick_coords = list(robot_xyz) + PICK_ORIENTATION
 
@@ -234,14 +257,19 @@ def pick_and_place_battery(mc, camera_coords, is_cbattery=False):
     place_coords = CBATTERY_BIN_COORD if is_cbattery else BATTERY_BIN_COORD
 
     # Validate coordinates are within robot's working range
-    if not is_valid_coord(pick_coords):
-        print(f"ERROR: Pick coordinates out of range: {pick_coords}")
+    if not is_valid_coord(pick_coords) or not is_valid_coord(hover_coords):
+        print(f"ERROR: Pick or hover coordinates out of range: {hover_coords} -> {pick_coords}")
         return False
 
-    # Move to target position
-    print(f"Moving to pick battery at: {pick_coords}")
-    mc.send_coords(pick_coords, 30, 1)
-    time.sleep(3)
+    # STEP 1: Move to hover position above the target
+    print(f"Moving to hover position {hover_coords} (60 units above target)")
+    mc.send_coords(hover_coords, 30, 1)
+    time.sleep(2)
+
+    # STEP 2: Move down to the actual target position
+    print(f"Moving down to pick battery at: {pick_coords}")
+    mc.send_coords(pick_coords, 20, 1)  # Slower speed for precision
+    time.sleep(2)
 
     # Close gripper to grab the battery
     print("Grabbing battery (closing gripper)...")
@@ -282,13 +310,27 @@ def main():
     class_settings = {
         "Battery": {
             "color": (0, 255, 0),  # Green for Battery
-            "threshold": 0.5  # Detection threshold for Battery
+            "threshold": 0.5,  # Detection threshold for Battery
+            "objects": {}  # Dictionary to store multiple objects of this class
         },
         "CBattery": {
             "color": (255, 0, 0),  # Blue for CBattery
-            "threshold": 0.1  # Detection threshold for CBattery
+            "threshold": 0.1,  # Detection threshold for CBattery
+            "objects": {}  # Dictionary to store multiple objects of this class
         }
     }
+
+    # Function to calculate average Z value for a specific object
+    def get_avg_z(class_name, object_id):
+        if class_name not in class_settings:
+            return None
+        if object_id not in class_settings[class_name]["objects"]:
+            return None
+       
+        z_history = class_settings[class_name]["objects"][object_id]["z_history"]
+        if not z_history:
+            return None
+        return sum(z_history) / len(z_history)
 
     # Connect to device and start pipeline
     with dai.Device(pipeline) as device:
@@ -333,23 +375,54 @@ def main():
                 y = detection.spatialCoordinates.y
                 z = detection.spatialCoordinates.z
 
+                # Create a unique object identifier based on its approximate position in 3D space
+                # Round position to nearest 10mm to account for small movements
+                object_id = f"{round(x/10)*10}_{round(y/10)*10}"
+               
+                # Initialize object data if this is a new object
+                if object_id not in class_settings[class_name]["objects"]:
+                    class_settings[class_name]["objects"][object_id] = {
+                        "z_history": [],
+                        "last_seen": time.time()
+                    }
+               
+                # Update last seen time
+                class_settings[class_name]["objects"][object_id]["last_seen"] = time.time()
+               
+                # Update Z history for this specific object (keep only last 5 values)
+                class_settings[class_name]["objects"][object_id]["z_history"].append(z)
+                if len(class_settings[class_name]["objects"][object_id]["z_history"]) > 50:
+                    class_settings[class_name]["objects"][object_id]["z_history"].pop(0)
+               
+                # Calculate average Z for this specific object
+                avg_z = get_avg_z(class_name, object_id)
+               
                 # Draw bounding box and information
                 color = class_settings[class_name]["color"]
                 cv2.rectangle(frame, (xmin, ymin), (xmax, ymax), color, 2)
                 cv2.putText(frame, f"{class_name} {detection.confidence:.2f}",
                             (xmin, ymin - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
 
-                # Display spatial coordinates
+                # Display spatial coordinates with both raw and averaged Z
                 cv2.putText(frame, f"X: {x:.0f}mm  Y: {y:.0f}mm  Z: {z:.0f}mm",
                             (xmin, ymin - 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+               
+                if avg_z is not None:
+                    cv2.putText(frame, f"Avg Z: {avg_z:.0f}mm ({len(class_settings[class_name]['objects'][object_id]['z_history'])}/5 frames)",
+                                (xmin, ymin - 50), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+               
+                # Also display object ID for debugging
+                cv2.putText(frame, f"ID: {object_id}",
+                            (xmin, ymin - 70), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
                 # Track best detection for picking
                 if detection.confidence > best_confidence:
                     best_confidence = detection.confidence
                     best_detection = {
-                        "coordinates": [x, y, z],
+                        "coordinates": [x, y, avg_z if avg_z is not None else z],  # Use averaged Z if available
                         "class_name": class_name,
-                        "confidence": detection.confidence
+                        "confidence": detection.confidence,
+                        "object_id": object_id
                     }
 
             # Display status and instructions
@@ -357,6 +430,38 @@ def main():
             cv2.putText(frame, mode_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
             cv2.putText(frame, "p: pick  a: toggle auto  q: quit", (10, 60),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+           
+            # Show current Z history status for each object
+            y_pos = 90
+            for class_name in ["Battery", "CBattery"]:
+                object_count = len(class_settings[class_name]["objects"])
+                cv2.putText(frame, f"{class_name} Objects: {object_count}", (10, y_pos),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, class_settings[class_name]["color"], 1)
+                y_pos += 20
+               
+                # Display the first 3 objects for each class
+                count = 0
+                for object_id, object_data in class_settings[class_name]["objects"].items():
+                    if count >= 3:  # Limit to 3 objects to prevent cluttering the display
+                        break
+                    avg_z = get_avg_z(class_name, object_id)
+                    history_count = len(object_data["z_history"])
+                    status = f"  ID {object_id}: Z-Buffer {history_count}/5"
+                    if avg_z is not None:
+                        status += f" (Avg: {avg_z:.0f}mm)"
+                    cv2.putText(frame, status, (20, y_pos),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, class_settings[class_name]["color"], 1)
+                    y_pos += 20
+                    count += 1
+                   
+            # Clean up old objects (not seen for more than 10 seconds)
+            current_time = time.time()
+            for class_name in ["Battery", "CBattery"]:
+                # Create a copy of the keys to avoid modifying during iteration
+                object_ids = list(class_settings[class_name]["objects"].keys())
+                for object_id in object_ids:
+                    if current_time - class_settings[class_name]["objects"][object_id]["last_seen"] > 10:
+                        del class_settings[class_name]["objects"][object_id]
 
             # Show frame
             cv2.imshow("Battery Sorting System", frame)
@@ -382,15 +487,28 @@ def main():
                 is_cbattery = (battery_type == "CBattery")
 
                 print(f"\nProcessing {battery_type} (confidence: {best_detection['confidence']:.2f})")
+               
+                # Log the Z value being used (raw or averaged)
+                camera_coords = best_detection["coordinates"]
+                object_id = best_detection["object_id"]
+                avg_z = get_avg_z(battery_type, object_id)
+                if avg_z is not None and avg_z == camera_coords[2]:
+                    print(f"Using averaged Z value: {avg_z:.0f}mm from {len(class_settings[battery_type]['objects'][object_id]['z_history'])} samples")
+               
                 success = pick_and_place_battery(
                     mc,
-                    best_detection["coordinates"],
+                    camera_coords,
                     is_cbattery
                 )
 
                 if success:
                     print(f"Successfully sorted {battery_type}")
                     last_processed_time = current_time
+                   
+                    # Clear object from tracking after successful pick
+                    if "object_id" in best_detection and best_detection["object_id"] in class_settings[battery_type]["objects"]:
+                        del class_settings[battery_type]["objects"][best_detection["object_id"]]
+                    print(f"Removed object from tracking")
                 else:
                     print(f"Failed to sort {battery_type}")
 
