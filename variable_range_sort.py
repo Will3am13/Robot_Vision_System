@@ -653,6 +653,23 @@ def main():
                 object_id = best_detection["object_id"]
                 avg_z = get_avg_z(battery_type, object_id)
                 if avg_z is not None and avg_z == camera_coords[2]:
+                    print(
+                        f"Using averaged Z value: {avg_z:.0f}mm from {len(class_settings[battery_type]['objects'][object_id]['z_history'])} samples")
+
+                success = pick_and_place_battery(
+                    mc,
+                    camera_coords,
+                    is_cbattery
+                )
+
+                if success:
+                    print(f"Successfully sorted {battery_type}")
+                    last_processed_time = current_time
+
+                    # Clear object from tracking after successful pick
+                    if "object_id" in best_detection and best_detection["object_id"] in class_settings[battery_type][
+                        "objects"]:
+                        del class_settings[battery_type]["objects"][best_detection["object_id"]]
                     print(f"Removed object {object_id} from tracking")
                 else:
                     print(f"Failed to sort {battery_type}")
@@ -673,19 +690,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-    f"Using averaged Z value: {avg_z:.0f}mm from {len(class_settings[battery_type]['objects'][object_id]['z_history'])} samples")
-
-    success = pick_and_place_battery(
-mc,
-camera_coords,
-is_cbattery
-)
-
-if success:
-    print(f"Successfully sorted {battery_type}")
-last_processed_time = current_time
-
-# Clear object from tracking after successful pick
-if "object_id" in best_detection and best_detection["object_id"] in class_settings[battery_type]["objects"]:
-    del class_settings[battery_type]["objects"][best_detection["object_id"]]
-print(
