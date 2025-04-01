@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+import math
 
 
 def find_centroid(mask):
@@ -53,6 +54,58 @@ def find_corners(mask, max_corners=4):
         return []
 
 
+def calculate_object_angle(corners, centroid):
+    """Calculate the orientation angle of an object based on its corners and centroid"""
+    if not corners or len(corners) < 2 or not centroid:
+        return None
+
+    # Find the principal axis using PCA-like approach
+    # First, center the points by subtracting the centroid
+    centered_corners = [(x - centroid[0], y - centroid[1]) for x, y in corners]
+
+    # Calculate the covariance matrix
+    n = len(centered_corners)
+    sum_xx = sum(x * x for x, y in centered_corners)
+    sum_yy = sum(y * y for x, y in centered_corners)
+    sum_xy = sum(x * y for x, y in centered_corners)
+
+    # Avoid division by zero
+    if n == 0:
+        return None
+
+    cov_xx = sum_xx / n
+    cov_yy = sum_yy / n
+    cov_xy = sum_xy / n
+
+    # Calculate the angle using the covariance matrix
+    if abs(cov_xx - cov_yy) < 1e-10 and abs(cov_xy) < 1e-10:
+        # Object is approximately circular
+        return 0
+
+    # Calculate the angle of the principal axis
+    theta = 0.5 * math.atan2(2 * cov_xy, cov_xx - cov_yy)
+
+    # Convert to degrees
+    angle_degrees = math.degrees(theta)
+
+    return angle_degrees
+
+
+def calculate_distance_from_center(centroid, frame_center):
+    """Calculate the pixel distance from the frame center to the object centroid"""
+    if not centroid:
+        return None, None, None
+
+    # Calculate the x and y differences
+    x_diff = centroid[0] - frame_center[0]
+    y_diff = centroid[1] - frame_center[1]
+
+    # Calculate the Euclidean distance
+    distance = math.sqrt(x_diff ** 2 + y_diff ** 2)
+
+    return x_diff, y_diff, distance
+
+
 def main():
     # Open the default camera (usually webcam)
     cap = cv2.VideoCapture(0)
@@ -63,12 +116,12 @@ def main():
         return
 
     # Initial threshold value (0-255)
-    threshold = 135
+    threshold = 120
 
     print("Controls:")
     print("  + : Increase threshold")
     print("  - : Decrease threshold")
-    print("  r : Reset threshold to 135")
+    print("  r : Reset threshold to 120")
     print("  q : Quit the program")
 
     while True:
@@ -81,6 +134,14 @@ def main():
 
         # Make a copy of the original frame for display
         display_frame = frame.copy()
+
+        # Get frame dimensions
+        height, width = frame.shape[:2]
+        frame_center = (width // 2, height // 2)
+
+        # Draw a crosshair at the center of the frame
+        cv2.drawMarker(display_frame, frame_center, (255, 0, 255), markerType=cv2.MARKER_CROSS,
+                       markerSize=20, thickness=2)
 
         # Convert to grayscale
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -99,14 +160,44 @@ def main():
         if contours:
             # Find centroid
             centroid = find_centroid(mask)
-            if centroid:
-                # Draw centroid as a red circle
-                cv2.circle(display_frame, centroid, 5, (0, 0, 255), -1)
-                cv2.putText(display_frame, f"Centroid: {centroid}", (10, 30),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
 
             # Find corners
             corners = find_corners(mask)
+
+            if centroid:
+                # Calculate distance from center
+                x_diff, y_diff, distance = calculate_distance_from_center(centroid, frame_center)
+
+                # Calculate object angle
+                angle = calculate_object_angle(corners, centroid)
+
+                # Draw centroid as a red circle
+                cv2.circle(display_frame, centroid, 5, (0, 0, 255), -1)
+
+                # Draw a line from center to centroid
+                cv2.line(display_frame, frame_center, centroid, (255, 0, 255), 2)
+
+                # Display centroid coordinates
+                cv2.putText(display_frame, f"Centroid: {centroid}", (10, 30),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+
+                # Display distance information
+                cv2.putText(display_frame, f"Center to object: {distance:.1f} pixels", (10, 60),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 255), 2)
+                cv2.putText(display_frame, f"X-diff: {x_diff} px, Y-diff: {y_diff} px", (10, 90),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 255), 2)
+
+                # Display angle if available
+                if angle is not None:
+                    cv2.putText(display_frame, f"Angle: {angle:.1f} degrees", (10, 120),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 165, 0), 2)
+
+                    # Draw the principal axis line
+                    axis_length = 50  # Length of the axis line to draw
+                    radian_angle = math.radians(angle)
+                    end_x = int(centroid[0] + axis_length * math.cos(radian_angle))
+                    end_y = int(centroid[1] + axis_length * math.sin(radian_angle))
+                    cv2.line(display_frame, centroid, (end_x, end_y), (255, 165, 0), 2)
 
             # Draw corners as blue circles
             for i, corner in enumerate(corners):
@@ -132,7 +223,7 @@ def main():
         elif key == ord('-') or key == ord('_'):
             threshold = max(threshold - 5, 0)
         elif key == ord('r'):
-            threshold = 135
+            threshold = 120
         elif key == ord('q'):
             break
 
