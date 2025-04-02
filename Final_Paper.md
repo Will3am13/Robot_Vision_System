@@ -801,54 +801,58 @@ The Gantt chart detailing the project's timeline, objectives, progress, and repo
 
 ### Teammate Roles & Responsibilities
 
- pipeline for the RVC2
-   - Implements the multi-frame tracking system
-   
-2. **Camera System and Data Pipeline Integration**  
-   - Designs and implements the data pipeline for real-time processing
-   - Optimizes data acquisition and preprocessing tasks
-   - Develops the Z-depth averaging system for stable position estimation
-   - Calibrates the vision system for accurate spatial measurements
-   
-3. **System Integration and Documentation**  
-   - Integrates vision and robotic components
-   - Creates comprehensive system documentation
-   - Develops user interface elements
-   - Prepares technical specifications and diagrams
+**Antonio Coelho's Responsibilities**
+1. **Object Detection Algorithm Development**
+   * Creates and optimizes deep learning models for battery detection
+   * Develops visual features for corrosion classification
+   * Implements the detection pipeline for the RVC2
+   * Implements the multi-frame tracking system
+
+2. **Camera System and Data Pipeline Integration**
+   * Designs and implements the data pipeline for real-time processing
+   * Optimizes data acquisition and preprocessing tasks
+   * Develops the Z-depth averaging system for stable position estimation
+   * Calibrates the vision system for accurate spatial measurements
+
+3. **System Integration and Documentation**
+   * Integrates vision and robotic components
+   * Creates comprehensive system documentation
+   * Develops user interface elements
+   * Prepares technical specifications and diagrams
 
 **William Dayton's Responsibilities**
-1. **Robotic Arm Control**  
-   - Implements the MyCobot 280 Python SDK integration
-   - Develops the coordinate transformation system using Ridge regression
-   - Programs the variable-range configuration system
-   - Implements safety validation and error handling
-   
-2. **Gripper Implementation**  
-   - Configures and optimizes the adaptive gripper
-   - Develops grip force control for different battery conditions
-   - Implements pick-and-place sequences
-   - Tests and validates robotic manipulation performance
-   
-3. **Testing and Optimization**  
-   - Designs and executes comprehensive test protocols
-   - Measures and analyzes system performance metrics
-   - Optimizes movement paths and timing
-   - Refines sorting algorithms based on test results
+1. **Robotic Arm Control**
+   * Implements the MyCobot 280 Python SDK integration
+   * Develops the coordinate transformation system using Ridge regression
+   * Programs the variable-range configuration system
+   * Implements safety validation and error handling
+
+2. **Gripper Implementation**
+   * Configures and optimizes the adaptive gripper
+   * Develops grip force control for different battery conditions
+   * Implements pick-and-place sequences
+   * Tests and validates robotic manipulation performance
+
+3. **Testing and Optimization**
+   * Designs and executes comprehensive test protocols
+   * Measures and analyzes system performance metrics
+   * Optimizes movement paths and timing
+   * Refines sorting algorithms based on test results
 
 **Shared Responsibilities**
-- **System Integration and Optimization**  
-  - Collaboratively integrates subsystems into the Raspberry Pi platform
-  - Optimizes communication between vision systems and robot control
-  - Tunes performance parameters across distributed processing architecture
-  - Tests and verifies all functionalities to ensure seamless operation
-  - Develops system monitoring and error recovery procedures
-  
-- **Final Demonstration and Documentation**  
-  - Jointly prepares for the final project demonstration and presentation
-  - Shares responsibility for creating final documentation summarizing achievements and challenges
-  - Develops user training materials for system operation
-  - Creates technical diagrams illustrating system architecture
-  - Prepares performance analysis reports comparing theoretical and actual results
+* **System Integration and Optimization**
+   * Collaboratively integrates subsystems into the Raspberry Pi platform
+   * Optimizes communication between vision systems and robot control
+   * Tunes performance parameters across distributed processing architecture
+   * Tests and verifies all functionalities to ensure seamless operation
+   * Develops system monitoring and error recovery procedures
+
+* **Final Demonstration and Documentation**
+   * Jointly prepares for the final project demonstration and presentation
+   * Shares responsibility for creating final documentation summarizing achievements and challenges
+   * Develops user training materials for system operation
+   * Creates technical diagrams illustrating system architecture
+   * Prepares performance analysis reports comparing theoretical and actual results
 
 ### Test Plan
 
