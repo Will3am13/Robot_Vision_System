@@ -277,7 +277,7 @@ Using these weights, we evaluated four primary algorithms in Table 10.
 | Integration | 0.10 | 8 | 7 | 9 | 8 |
 | **Total Score** | 1.00 | **8.60** | **8.20** | **7.20** | **8.40** |
 
-Object detection scored highest overall due to its processing speed and scalability, directly addressing the customer requirement for "real-time performance in dynamic environments." This algorithm excels at identifying and localizing objects within the system's field of view, critical for the "accurate object localization" requirement. We ultimately combined object detection with image classification to showcase more advanced vision processing techniques.
+Object detection scored highest overall due to its processing speed and scalability, directly addressing the customer requirement for "real-time performance in dynamic environments." This algorithm excels at identifying objects within the system's field of view, critical for the "accurate object localization" requirement. We ultimately combined object detection with image classification to showcase more advanced vision processing techniques, as well as to create a demonstration with more practical implications.
 
 ### Robotic Arm Selection
 
