@@ -114,11 +114,11 @@ Key challenges include:
 
 ### Customer Requirements
 
-- Safety and reliability in object detection
-- Real-time performance suitable for dynamic environments
-- Cost-effectiveness compared to similar products
-- Accurate object localization for robotic manipulation
-- Accurate robotic manipulation
+1. Safety and reliability in object detection
+2. Real-time performance suitable for dynamic environments
+3. Cost-effectiveness compared to similar products
+4. Accurate object localization
+5. Accurate robotic manipulation
 
 ## Proposed Solution
 
