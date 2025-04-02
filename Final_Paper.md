@@ -325,7 +325,7 @@ Our final system architecture leverages the strengths of each component:
 
 This distributed processing approach optimizes performance by leveraging the strengths of each component, creating an efficient pipeline from detection to manipulation. The system fulfills all customer requirements:
 
-1. **Safety and reliability**: Achieved through redundant sensing with the OAK-D-SR and secondary camera
+1. **Safety and reliability**: Achieved through accurate object detection models as well as pose estimation
 2. **Real-time performance**: Enabled by the SoC architecture of the OAK-D-SR and efficient processing on the Raspberry Pi
 3. **Cost-effectiveness**: Attained through strategic component selection prioritizing value
 4. **Accurate object localization**: Delivered by precise depth sensing and object detection algorithms
@@ -335,7 +335,7 @@ The final system is optimized for quality assurance in identifying 9-V batteries
 
 # Technical Requirements
 
-Our project develops a real-time robotic vision system using the OAK-D-SR stereoscopic camera with an integrated SoC and MyCobot 280 robotic arm with adaptive gripper. This configuration meets our $1,200 budget target while satisfying functional and technical requirements.
+Our project develops a real-time robotic vision system using the OAK-D-SR stereoscopic camera with an integrated SoC and MyCobot 280 robotic arm with adaptive gripper. This configuration has a total cost of $1,200 while satisfying functional and technical requirements.
 
 ## Table 10: System and Marketing Requirements
 
