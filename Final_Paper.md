@@ -325,11 +325,11 @@ Our final system architecture leverages the strengths of each component:
 
 This distributed processing approach optimizes performance by leveraging the strengths of each component, creating an efficient pipeline from detection to manipulation. The system fulfills all customer requirements:
 
-- **Safety and reliability**: Achieved through redundant sensing with the OAK-D-SR and secondary camera
-- **Real-time performance**: Enabled by the SoC architecture of the OAK-D-SR and efficient processing on the Raspberry Pi
-- **Cost-effectiveness**: Attained through strategic component selection prioritizing value
-- **Accurate object localization**: Delivered by precise depth sensing and object detection algorithms
-- **Accurate robotic manipulation**: Ensured by integration of vision data with the MyCobot's control system
+1. **Safety and reliability**: Achieved through redundant sensing with the OAK-D-SR and secondary camera
+2. **Real-time performance**: Enabled by the SoC architecture of the OAK-D-SR and efficient processing on the Raspberry Pi
+3. **Cost-effectiveness**: Attained through strategic component selection prioritizing value
+4. **Accurate object localization**: Delivered by precise depth sensing and object detection algorithms
+5. **Accurate robotic manipulation**: Ensured by integration of vision data with the MyCobot's control system
 
 The final system is optimized for quality assurance in identifying 9-V batteries, specifically distinguishing between corroded and non-corroded batteries, demonstrating practical application of our robotic vision solution.
 
