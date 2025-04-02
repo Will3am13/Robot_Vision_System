@@ -107,7 +107,7 @@ Cons:
 The project aims to address the challenge of developing a robotic vision system capable of detecting, classifying, and spatially localizing objects using stereoscopic camera technology and edge processing. This system is crucial for advancing robotics and autonomous systems, particularly in applications requiring precise object manipulation and interaction in real-time environments.
 
 Key challenges include:
-- Optimizing computer vision algorithms for embedded SoC architectures to maximize computational efficiencya
+- Optimizing computer vision algorithms for embedded SoC architectures to maximize computational efficiency
 - Accurate object detection and classification in various lighting conditions
 - Ensuring accurate "hand-eye" calibration between vision and robotic system
 - Managing robot positioning to ensure no illegal positions are attempted
