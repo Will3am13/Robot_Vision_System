@@ -344,7 +344,7 @@ Our project develops a real-time robotic vision system using the OAK-D-SR stereo
 | 1, 2, 4 | Detect/localize objects up to 1m with 95% accuracy | Ensures reliable detection for safety-critical tasks and real-time operation |
 | 2, 3 | Process data with max 200ms delay per frame | Critical for accurate detection and quick response |
 | 3 | Production cost under $1200 | Based on competitive benchmarking for market viability |
-| 4 | Object localization within ±1cm error at 1m | Ensures effective manipulation by robotic systems |
+| 4,5 | Object localization within ±1cm error at 1m | Ensures effective manipulation by robotic systems |
 
 **Marketing Requirements:**
 1. Safe, reliable, efficient object detection
