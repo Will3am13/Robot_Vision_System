@@ -333,67 +333,73 @@ This distributed processing approach optimizes performance by leveraging the str
 
 The final system is optimized for quality assurance in identifying 9-V batteries, specifically distinguishing between corroded and non-corroded batteries, demonstrating practical application of our robotic vision solution.
 
-### Technical Requirements
+# Technical Requirements
 
-The system requirements table outlines key factors that contribute to our project's objective of developing a real-time robotic vision system. Based on our analysis and component selection, our optimized system includes the OAK-D-SR stereoscopic camera with its integrated VPU for vision processing and the MyCobot 280 robotic arm with an adaptive gripper. This configuration balances performance needs with cost considerations, achieving our target budget of under $1,200. The system is designed to meet both functional and technical requirements, including precision in object detection and localization while remaining competitive in terms of cost.
+Our project develops a real-time robotic vision system using the OAK-D-SR stereoscopic camera with an integrated SoC and MyCobot 280 robotic arm with adaptive gripper. This configuration meets our $1,200 budget target while satisfying functional and technical requirements.
 
-**Table 10: System and Marketing Requirements**
+## Table 10: System and Marketing Requirements
 
-| **Marketing Requirements** | **Engineering Requirements** | **Justification** |
-|----------------------------|------------------------------|-------------------|
-| 1, 2, 4 | The system should detect and localize objects up to 1 meter with 95% accuracy. | Ensures reliable object detection for safety-critical tasks and smooth operation in real-time conditions. |
-| 2, 3 | The processor should process data with a maximum delay of 200ms per frame. | Processing is crucial for accurate detection and quick response, preventing potential hazards. |
-| 3 | Production cost should not exceed $1200. | Based on competitive benchmarking to ensure affordability and market competitiveness. |
-| 4 | The system should locate objects accurately within ±1cm of error at 1 meter. | Ensures detected objects can be manipulated effectively by connected robotic systems. |
-| **Marketing Requirements** | | |
-| 1 | The system should be safe, reliable, and efficient for object detection. | |
-| 2 | The system should provide real-time performance for dynamic environments. | |
-| 3 | The system should have a cost-effective design compared to similar products. | |
-| 4 | The system should have accurate object localization. | |
+| Marketing Requirements | Engineering Requirements | Justification |
+|---|---|---|
+| 1, 2, 4 | Detect/localize objects up to 1m with 95% accuracy | Ensures reliable detection for safety-critical tasks and real-time operation |
+| 2, 3 | Process data with max 200ms delay per frame | Critical for accurate detection and quick response |
+| 3 | Production cost under $1200 | Based on competitive benchmarking for market viability |
+| 4 | Object localization within ±1cm error at 1m | Ensures effective manipulation by robotic systems |
 
-#### Requirements Analysis Framework
+**Marketing Requirements:**
+1. Safe, reliable, efficient object detection
+2. Real-time performance for dynamic environments
+3. Cost-effective design compared to similar products
+4. Accurate object localization
 
-From the Trade-off Matrix, it becomes evident that improving one aspect of the system, such as sensor accuracy (denoted by +), can increase costs (denoted by -), indicating a direct trade-off between performance and budget. This balance is essential for optimizing the system's design. The Table further breaks down these relationships, demonstrating how different engineering requirements—like hardware latency, vision processing, and sensor accuracy—interact, showing the extent to which they can be optimized simultaneously.
+## Requirements Analysis Framework
 
-**Table 11: Engineering-Marketing Trade-off Matrix**
+The Trade-off Matrix demonstrates how improving sensor accuracy (+) increases costs (-), creating direct performance-budget tradeoffs. The tables show interactions between hardware latency, vision processing, and sensor accuracy, illustrating optimization constraints.
 
-| | | **Range** | **Latency** | **Accuracy** | **Processing** | **Cost** |
-|---|---|---|---|---|---|---|
-| | | **+** | **-** | **+** | **+** | **-** |
-| **Object Detection** | **+** | ↓ | | ↑↑ | ↑↑ | |
-| **Speed** | **+** | ↓ | ↑↑ | | ↑ | |
-| **Cost** | **-** | ↓ | ↑↑ | ↓ | | |
-| **Accuracy** | **+** | ↓↓ | ↓ | ↑↑ | | |
+### Table 11: Engineering-Marketing Trade-off Matrix
 
-In this project, some engineering requirements are independent, while others are tightly interdependent. For instance, increasing vision processing performance could significantly improve object detection but may also raise the overall system cost and latency. Table 12 will present a competitive benchmark comparison for similar robotic vision systems, offering insights into how our design can measure up to market alternatives. This analysis will help us refine the project to maintain technical performance and cost competitiveness, ensuring our system stands out in the market.
+| | Range (+) | Latency (-) | Accuracy (+) | Processing (+) | Cost (-) |
+|---|---|---|---|---|---|
+| Object Detection | + | ↓ | | ↑↑ | ↑↑ |
+| Speed | + | ↓ | ↑↑ | | ↑ |
+| Cost | - | ↓ | ↑↑ | ↓ | |
+| Accuracy | + | ↓↓ | ↓ | ↑↑ | |
 
-**Table 12: Engineering Trade-off Matrix: ↓ ↑**
+These matrices reveal tensions between performance and cost that shaped our project approach. Improvements in accuracy require more sophisticated sensors and processing capabilities, directly increasing system cost. This illustrates why high-performance vision systems command premium prices and highlights our challenge of delivering acceptable performance at accessible prices. The interdependence of parameters shown in Table 12 required holistic system design rather than component-by-component optimization.
 
-| | | **Range** | **Latency** | **Accuracy** | **Processing** | **Cost** |
-|---|---|---|---|---|---|---|
-| | | **+** | **-** | **+** | **+** | **-** |
-| **Range** | **+** | | | ↓ | ↓ | ↑ |
-| **Latency** | **-** | | | ↓ | ↓ | ↑ |
-| **Accuracy** | **-** | | | | ↑ | ↑ |
-| **Processing** | **+** | | | | | ↑ |
-| **Cost** | **-** | | | | | |
+### Table 12: Engineering Trade-off Matrix
 
-#### House of Quality
+| | Range (+) | Latency (-) | Accuracy (+) | Processing (+) | Cost (-) |
+|---|---|---|---|---|---|
+| Range (+) | | | ↓ | ↓ | ↑ |
+| Latency (-) | | | ↓ | ↓ | ↑ |
+| Accuracy (-) | | | | ↑ | ↑ |
+| Processing (+) | | | | | ↑ |
+| Cost (-) | | | | | |
 
-The House of Quality table combines customer requirements with engineering factors, highlighting their relationships and importance. Key customer needs such as Object Detection, Speed, Cost, and Accuracy are aligned with engineering parameters like Range, Hardware Latency, Sensor Accuracy, and Vision Processing. The customer importance values were prioritized and converted into relative weights, offering insight into their impact on the design.
+The matrices suggest that improvements in performance metrics yield diminishing returns as cost increases. This informed our decision to target the "sweet spot" where performance meets acceptable thresholds without excessive investment. The strong relationship between processing capabilities and accuracy guided our architectural approach of distributing processing tasks across multiple components rather than centralizing them.
 
-![House of Quality](https://i.imgur.com/example2.png)
+## House of Quality
 
-*Figure 2: House of Quality (placeholder image)*
+### Figure 2: House of Quality
+[Placeholder for House of Quality diagram]
 
-The analysis shows that Sensor Accuracy and Vision Processing hold the highest importance, reflecting their critical role in object detection. Speed also has significant weight, while Cost and Range are of relatively lower importance. These results guide the design focus toward the most impactful areas.
+The House of Quality analysis identified Sensor Accuracy and Vision Processing as highest priorities, followed by Speed, with Cost and Range as lower priorities.
 
-**ADDED**: Our implementation with the Raspberry Pi-controlled MyCobot 280 aligns well with these priorities. To compensate for the limitations of stereoscopic depth sensing compared to ToF technology, we've implemented a dual-camera approach that combines the broad detection capabilities of the OAK-D-SR with the precise alignment capabilities of the secondary USB camera. The mini_cam.py implementation on the Raspberry Pi provides critical fine-tuning for edge cases, enabling the system to handle batteries at arbitrary orientations. The distributed processing approach—with vision tasks split between the OAK-D-SR's onboard RVC2 and the Raspberry Pi—maintains processing speeds below our 200ms target threshold. This architecture successfully balances the critical factors of accuracy, flexibility, and speed while working within the constraints of cost-effective hardware.
+Our implementation addresses these priorities through:
 
-#### Competitive Benchmarks
+- A dual-camera approach combining the OAK-D-SR for broad detection with a secondary USB camera for precise alignment
+- Distributed processing between the OAK-D-SR's onboard RVC2 and Raspberry Pi maintaining processing speeds below our 200ms threshold
 
-The updated Project Cost Table reflects the essential components required to develop and optimize the robotic vision system for its primary objectives. The core elements, including the Luxonis OAK-D-SR camera and the MyCobot 280 robotic arm, ensure immediate functionality for real-time object detection and classification tasks. Supporting components, such as the adaptive gripper and miscellaneous parts, contribute to the system's ability to identify and handle objects effectively.
+This architecture balances accuracy, flexibility, and speed within cost constraints of our $1,200 budget, meeting the 95% detection accuracy and ±1cm localization precision requirements at 1 meter range.
 
+The House of Quality analysis shaped our design by prioritizing customer needs against technical capabilities. It highlighted areas where current market offerings fall short of customer needs, particularly in cost-effective solutions that maintain adequate accuracy. The analysis provided a framework for resolving tensions between competing requirements, transforming subjective design decisions into data-driven choices.
+
+## Competitive Benchmarks
+
+The project cost includes essential components: Luxonis OAK-D-SR camera, MyCobot 280 robotic arm, adaptive gripper, and supporting components. This configuration enables functionality for real-time object detection, classification, and handling.
+
+Our benchmarking revealed a gap between high-end commercial systems ($5,000-$10,000+) and the educational/small business market segment. Our $1,200 solution targets this underserved segment, delivering sufficient performance for most educational and light industrial applications. Unlike closed commercial systems, our modular approach offers customization potential, allowing users to adapt the system to specific use cases and incrementally enhance capabilities through software updates or module additions.
 **Table 13: Project Cost Table**
 
 | **Item** | **Quantity** | **Unit Cost** | **Total Cost** |
