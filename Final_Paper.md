@@ -281,7 +281,7 @@ Object detection scored highest overall due to its processing speed and scalabil
 
 ### Robotic Arm Selection
 
-We evaluated three collaborative robots against criteria essential for our application, as shown in Table 11.
+We evaluated three 6-axis robotic arms against criteria essential for our application, as shown in Table 11.
 
 **Table 11: Robotic Arm Comparison**
 
