@@ -57,7 +57,7 @@ The field of robotic vision systems has evolved significantly over the past deca
 
 Current market solutions for robotic vision systems span several key categories in the industry. Stereoscopic vision systems employ dual cameras to achieve depth perception through parallax, while LiDAR-based systems utilize precise laser scanning technology to create detailed point clouds of their environment. Multi-camera systems take advantage of multiple viewing angles to build comprehensive spatial awareness, and some solutions integrate multiple sensing approaches into hybrid systems for enhanced capabilities.
 
-These various approaches tackle fundamental challenges in robotic vision differently. However, each system must process high-bandwidth sensor data in real-time while maintaining accurate object detection and classification. Each system must also achieve precise spatial localization to enable effective robotic interaction with the environment. Additionally, these systems require accurate "hand-eye" calibration to successfully integrate with robotic control systems.
+These various approaches tackle fundamental challenges in robotic vision differently. However, each system must process high-bandwidth sensor data in real-time while maintaining accurate object detection and classification. Each system must also achieve precise spatial localization to enable effective robotic interaction with the environment. Additionally, these systems require accurate "hand-eye" calibration to successfully integrate the vison system with the robotic systems.
 
 ### Pros and Cons
 
