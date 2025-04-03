@@ -201,8 +201,6 @@ def shutdown_system(oak_process, oak_cmd_queue, frame_queue, robot_process, robo
     logger.info("System shutdown complete")
 
 
-# Removed create_status_window function since we now use update_combined_frame
-
 def update_combined_frame(combined_frame, video_frame=None, best_detection=None, auto_mode=False, robot_status="unknown", oak_status="unknown"):
     """
     Update the combined frame with both status information and video feed
@@ -247,11 +245,30 @@ def update_combined_frame(combined_frame, video_frame=None, best_detection=None,
     cv2.putText(status_region, mode_text, (10, 30), 
                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
     
+    # Determine color for status text
+    robot_color = (255, 255, 255)  # Default white
+    if robot_status == "error":
+        robot_color = (0, 0, 255)  # Red for error
+    elif robot_status == "busy":
+        robot_color = (0, 165, 255)  # Orange for busy
+    elif robot_status == "ready":
+        robot_color = (0, 255, 0)  # Green for ready
+    
+    oak_color = (255, 255, 255)  # Default white
+    if oak_status == "error":
+        oak_color = (0, 0, 255)  # Red for error
+    elif oak_status == "recovering":
+        oak_color = (0, 165, 255)  # Orange for recovering
+    elif oak_status == "paused":
+        oak_color = (0, 165, 255)  # Orange for paused
+    elif oak_status == "running":
+        oak_color = (0, 255, 0)  # Green for running
+    
     cv2.putText(status_region, f"Robot: {robot_status}", (10, 70),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, robot_color, 1)
     
     cv2.putText(status_region, f"Camera: {oak_status}", (10, 100),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, oak_color, 1)
     
     # Add best detection information
     if best_detection:
@@ -286,7 +303,7 @@ def update_combined_frame(combined_frame, video_frame=None, best_detection=None,
     cv2.putText(info_region, "Controls:", (10, 30),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
     
-    cv2.putText(info_region, "p: pick object  a: toggle auto mode  q: quit", (10, 60),
+    cv2.putText(info_region, "p: pick object  a: toggle auto mode  r: reset camera  q: quit", (10, 60),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
     
     # Add distance ranges info
@@ -396,9 +413,17 @@ def main():
                         # Check if it's a communication error
                         if ("Communication exception" in error_message or 
                             "X_LINK_ERROR" in error_message) and time.time() - last_error_time > 60:
-                            logger.info("Detected communication error - initiating recovery")
+                            logger.info("Detected communication error - initiating double power cycle recovery")
                             oak_cmd_queue.put({"command": "force_recovery"})
                             last_error_time = time.time()
+                    
+                    # Log when camera is recovering or recovered
+                    if new_oak_status == "recovering":
+                        logger.info("Camera is in recovery process")
+                    elif new_oak_status == "recovered":
+                        logger.info("Camera has recovered from error")
+                        # Request a status update on the camera
+                        oak_cmd_queue.put({"command": "status"})
                     
                     # Update status
                     oak_status = new_oak_status
@@ -464,9 +489,9 @@ def main():
                 auto_mode = not auto_mode
                 logger.info(f"Auto mode {'enabled' if auto_mode else 'disabled'}")
             
-            # Force camera recovery
+            # Force camera recovery with double power cycle
             elif key == ord('r'):
-                logger.info("User requested camera recovery")
+                logger.info("User requested camera recovery with double power cycle")
                 oak_cmd_queue.put({"command": "force_recovery"})
             
             # Quit on 'q' key
