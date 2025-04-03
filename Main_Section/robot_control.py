@@ -152,6 +152,10 @@ def pick_and_place_battery(mc, camera_coords, is_cbattery=False, camera_index=0)
         logger.info("Grabbing battery (closing gripper)...")
         mc.set_gripper_state(1, 70)
         time.sleep(2)
+
+        logger.info(f"Moving to hover position {hover_coords} (60 units above target)")
+        mc.send_coords(hover_coords, 30, 1)
+        time.sleep(0.5)
         
         # Return to standby position with battery
         logger.info("Returning to standby position...")
