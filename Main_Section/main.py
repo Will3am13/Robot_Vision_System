@@ -229,6 +229,11 @@ def update_combined_frame(combined_frame, video_frame=None, best_detection=None,
                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
 
     # Add video feed if available
+    # Keep track of the last valid frame (this variable should be defined outside this function, e.g. as a global or class variable)
+    # If this is the first run, last_video_frame might not be defined yet
+    if 'last_video_frame' not in globals():
+        last_video_frame = None
+
     if video_frame is not None:
         # Make sure video_frame is the right size
         if video_frame.shape[:2] != (400, 640):
@@ -237,7 +242,13 @@ def update_combined_frame(combined_frame, video_frame=None, best_detection=None,
         # Copy video frame to video region 
         video_region[:video_frame.shape[0], :video_frame.shape[1]] = video_frame
     
-    # Draw border around video region
+        # Update the last valid frame
+        last_video_frame = video_frame.copy()
+    elif last_video_frame is not None:
+        # Use the last valid frame if no new frame is available
+        video_region[:last_video_frame.shape[0], :last_video_frame.shape[1]] = last_video_frame
+    # If no frame is available and we don't have a last frame yet, the video region remains unchanged
+     # Draw border around video region
     cv2.rectangle(combined_frame, (49, 49), (691, 451), (100, 100, 100), 1)
     
     # Add mode and status information to status region
