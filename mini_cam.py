@@ -1,6 +1,9 @@
 import cv2
 import numpy as np
 import math
+import usb.core
+import usb.util
+import time
 
 
 def find_centroid(mask):
@@ -106,7 +109,75 @@ def calculate_distance_from_center(centroid, frame_center):
     return x_diff, y_diff, distance
 
 
+def find_webcam_device():
+    """Find USB device that is likely to be a webcam"""
+    # Find all USB devices
+    devices = list(usb.core.find(find_all=True))
+    
+    # Look for devices that might be webcams based on class codes
+    # USB Video Class (UVC) devices have class code 14 (0x0E)
+    webcams = []
+    
+    for device in devices:
+        try:
+            # Check if this is a video class device
+            if device.bDeviceClass == 239 and device.bDeviceSubClass == 2:  # Video class
+                webcams.append(device)
+            # Some webcams use interface class instead of device class
+            else:
+                for cfg in device:
+                    for intf in cfg:
+                        if intf.bInterfaceClass == 14:  # Video class
+                            webcams.append(device)
+                            break
+        except:
+            # Skip devices that can't be accessed
+            continue
+    
+    # Return the first webcam found, or None if not found
+    return webcams[0] if webcams else None
+
+
+def toggle_usb_power(device, turn_on=True):
+    """Toggle power to a USB device"""
+    if device is None:
+        print("No USB device specified")
+        return False
+    
+    try:
+        if turn_on:
+            # Reset the device to power it on
+            device.reset()
+            print("USB device powered ON")
+        else:
+            # Detach kernel driver if needed
+            for cfg in device:
+                for intf in cfg:
+                    if device.is_kernel_driver_active(intf.bInterfaceNumber):
+                        try:
+                            device.detach_kernel_driver(intf.bInterfaceNumber)
+                        except:
+                            pass
+            
+            # Set device to a suspended state
+            device.reset()
+            usb.util.dispose_resources(device)
+            print("USB device powered OFF")
+        
+        return True
+    except Exception as e:
+        print(f"Error toggling USB power: {e}")
+        return False
+
+
 def main():
+    # Find the webcam USB device
+    webcam_device = find_webcam_device()
+    if webcam_device:
+        print(f"Found webcam: {webcam_device.manufacturer} {webcam_device.product}")
+    else:
+        print("Warning: Could not identify webcam USB device. Power toggle may not work.")
+    
     # Open the default camera (usually webcam)
     cap = cv2.VideoCapture(0)
 
@@ -117,102 +188,154 @@ def main():
 
     # Initial threshold value (0-255)
     threshold = 120
+    
+    # Camera power state
+    camera_powered = True
 
     print("Controls:")
     print("  + : Increase threshold")
     print("  - : Decrease threshold")
     print("  r : Reset threshold to 120")
+    print("  p : Toggle USB power to camera")
     print("  q : Quit the program")
 
+    # Create a window with a trackbar for the power button
+    cv2.namedWindow('Controls')
+    # Create a button-like trackbar (it's a bit of a hack since OpenCV doesn't have buttons)
+    cv2.createTrackbar('Camera Power', 'Controls', 1, 1, lambda x: None)
+
     while True:
-        # Capture frame-by-frame
-        ret, frame = cap.read()
+        # Check the state of the power "button"
+        power_state = cv2.getTrackbarPos('Camera Power', 'Controls')
+        
+        # Check if power state changed via trackbar
+        if (power_state == 0) != (not camera_powered):
+            camera_powered = (power_state == 1)
+            if webcam_device:
+                toggle_usb_power(webcam_device, camera_powered)
+                # Give time for the camera to reconnect if powered on
+                if camera_powered:
+                    print("Waiting for camera to initialize...")
+                    time.sleep(2)
+                    # Try to reopen the camera
+                    cap.release()
+                    cap = cv2.VideoCapture(0)
+        
+        # Create a blank control panel to show the current status
+        control_panel = np.ones((150, 400, 3), dtype=np.uint8) * 240  # Light gray background
+        
+        # Add status text
+        cv2.putText(control_panel, f"Camera Power: {'ON' if camera_powered else 'OFF'}", 
+                    (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255) if not camera_powered else (0, 128, 0), 2)
+        cv2.putText(control_panel, f"Threshold: {threshold}", 
+                    (20, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
+        cv2.putText(control_panel, "Press 'p' to toggle power, 'q' to quit", 
+                    (20, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 1)
+        
+        # Show the control panel
+        cv2.imshow('Controls', control_panel)
+        
+        # Only try to capture a frame if the camera is powered on
+        if camera_powered and cap.isOpened():
+            # Capture frame-by-frame
+            ret, frame = cap.read()
 
-        if not ret:
-            print("Error: Failed to capture image from camera.")
-            break
+            if not ret:
+                print("Error: Failed to capture image from camera.")
+                # If we can't get a frame, assume camera might be disconnected or powered off
+                time.sleep(0.5)
+                continue
 
-        # Make a copy of the original frame for display
-        display_frame = frame.copy()
+            # Make a copy of the original frame for display
+            display_frame = frame.copy()
 
-        # Get frame dimensions
-        height, width = frame.shape[:2]
-        frame_center = (width // 2, height // 2)
+            # Get frame dimensions
+            height, width = frame.shape[:2]
+            frame_center = (width // 2, height // 2)
 
-        # Draw a crosshair at the center of the frame
-        cv2.drawMarker(display_frame, frame_center, (255, 0, 255), markerType=cv2.MARKER_CROSS,
-                       markerSize=20, thickness=2)
+            # Draw a crosshair at the center of the frame
+            cv2.drawMarker(display_frame, frame_center, (255, 0, 255), markerType=cv2.MARKER_CROSS,
+                        markerSize=20, thickness=2)
 
-        # Convert to grayscale
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            # Convert to grayscale
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-        # Threshold the grayscale image (white background becomes black)
-        # Values brighter than threshold become black (0), darker become white (255)
-        _, mask = cv2.threshold(gray, threshold, 255, cv2.THRESH_BINARY_INV)
+            # Threshold the grayscale image (white background becomes black)
+            # Values brighter than threshold become black (0), darker become white (255)
+            _, mask = cv2.threshold(gray, threshold, 255, cv2.THRESH_BINARY_INV)
 
-        # Find contours
-        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            # Find contours
+            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-        # Draw all contours on the display frame
-        cv2.drawContours(display_frame, contours, -1, (0, 255, 0), 2)
+            # Draw all contours on the display frame
+            cv2.drawContours(display_frame, contours, -1, (0, 255, 0), 2)
 
-        # Only process if contours are found
-        if contours:
-            # Find centroid
-            centroid = find_centroid(mask)
+            # Only process if contours are found
+            if contours:
+                # Find centroid
+                centroid = find_centroid(mask)
 
-            # Find corners
-            corners = find_corners(mask)
+                # Find corners
+                corners = find_corners(mask)
 
-            if centroid:
-                # Calculate distance from center
-                x_diff, y_diff, distance = calculate_distance_from_center(centroid, frame_center)
+                if centroid:
+                    # Calculate distance from center
+                    x_diff, y_diff, distance = calculate_distance_from_center(centroid, frame_center)
 
-                # Calculate object angle
-                angle = calculate_object_angle(corners, centroid)
+                    # Calculate object angle
+                    angle = calculate_object_angle(corners, centroid)
 
-                # Draw centroid as a red circle
-                cv2.circle(display_frame, centroid, 5, (0, 0, 255), -1)
+                    # Draw centroid as a red circle
+                    cv2.circle(display_frame, centroid, 5, (0, 0, 255), -1)
 
-                # Draw a line from center to centroid
-                cv2.line(display_frame, frame_center, centroid, (255, 0, 255), 2)
+                    # Draw a line from center to centroid
+                    cv2.line(display_frame, frame_center, centroid, (255, 0, 255), 2)
 
-                # Display centroid coordinates
-                cv2.putText(display_frame, f"Centroid: {centroid}", (10, 30),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+                    # Display centroid coordinates
+                    cv2.putText(display_frame, f"Centroid: {centroid}", (10, 30),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
 
-                # Display distance information
-                cv2.putText(display_frame, f"Center to object: {distance:.1f} pixels", (10, 60),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 255), 2)
-                cv2.putText(display_frame, f"X-diff: {x_diff} px, Y-diff: {y_diff} px", (10, 90),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 255), 2)
+                    # Display distance information
+                    cv2.putText(display_frame, f"Center to object: {distance:.1f} pixels", (10, 60),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 255), 2)
+                    cv2.putText(display_frame, f"X-diff: {x_diff} px, Y-diff: {y_diff} px", (10, 90),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 255), 2)
 
-                # Display angle if available
-                if angle is not None:
-                    cv2.putText(display_frame, f"Angle: {angle:.1f} degrees", (10, 120),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 165, 0), 2)
+                    # Display angle if available
+                    if angle is not None:
+                        cv2.putText(display_frame, f"Angle: {angle:.1f} degrees", (10, 120),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 165, 0), 2)
 
-                    # Draw the principal axis line
-                    axis_length = 50  # Length of the axis line to draw
-                    radian_angle = math.radians(angle)
-                    end_x = int(centroid[0] + axis_length * math.cos(radian_angle))
-                    end_y = int(centroid[1] + axis_length * math.sin(radian_angle))
-                    cv2.line(display_frame, centroid, (end_x, end_y), (255, 165, 0), 2)
+                        # Draw the principal axis line
+                        axis_length = 50  # Length of the axis line to draw
+                        radian_angle = math.radians(angle)
+                        end_x = int(centroid[0] + axis_length * math.cos(radian_angle))
+                        end_y = int(centroid[1] + axis_length * math.sin(radian_angle))
+                        cv2.line(display_frame, centroid, (end_x, end_y), (255, 165, 0), 2)
 
-            # Draw corners as blue circles
-            for i, corner in enumerate(corners):
-                cv2.circle(display_frame, corner, 5, (255, 0, 0), -1)
-                cv2.putText(display_frame, str(i), (corner[0] + 10, corner[1] + 10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+                # Draw corners as blue circles
+                for i, corner in enumerate(corners):
+                    cv2.circle(display_frame, corner, 5, (255, 0, 0), -1)
+                    cv2.putText(display_frame, str(i), (corner[0] + 10, corner[1] + 10),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
 
-        # Display the threshold value on the frame
-        cv2.putText(display_frame, f"Threshold: {threshold}", (10, display_frame.shape[0] - 20),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+            # Display the threshold value on the frame
+            cv2.putText(display_frame, f"Threshold: {threshold}", (10, display_frame.shape[0] - 20),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
-        # Display the resulting frames
-        cv2.imshow('Original', frame)
-        cv2.imshow('Processed', display_frame)
-        cv2.imshow('Mask', mask)
+            # Display the resulting frames
+            cv2.imshow('Original', frame)
+            cv2.imshow('Processed', display_frame)
+            cv2.imshow('Mask', mask)
+        else:
+            # Display a message when camera is off
+            no_signal = np.zeros((480, 640, 3), dtype=np.uint8)
+            cv2.putText(no_signal, "CAMERA OFF", (220, 240), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+            
+            # Display the no signal frame
+            cv2.imshow('Original', no_signal)
+            cv2.imshow('Processed', no_signal)
+            cv2.imshow('Mask', no_signal)
 
         # Wait for a key press and check which key was pressed
         key = cv2.waitKey(1) & 0xFF
@@ -224,12 +347,32 @@ def main():
             threshold = max(threshold - 5, 0)
         elif key == ord('r'):
             threshold = 120
+        elif key == ord('p'):
+            # Toggle camera power
+            camera_powered = not camera_powered
+            # Update the trackbar to match the power state
+            cv2.setTrackbarPos('Camera Power', 'Controls', 1 if camera_powered else 0)
+            
+            if webcam_device:
+                toggle_usb_power(webcam_device, camera_powered)
+                # Give time for the camera to reconnect if powered on
+                if camera_powered:
+                    print("Waiting for camera to initialize...")
+                    time.sleep(2)
+                    # Try to reopen the camera
+                    cap.release()
+                    cap = cv2.VideoCapture(0)
         elif key == ord('q'):
             break
 
     # When everything is done, release the capture and close windows
     cap.release()
     cv2.destroyAllWindows()
+    
+    # Make sure the camera is powered on before exiting
+    if webcam_device and not camera_powered:
+        print("Turning camera back on before exit...")
+        toggle_usb_power(webcam_device, True)
 
 
 if __name__ == "__main__":
