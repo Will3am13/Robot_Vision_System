@@ -8,6 +8,8 @@ import multiprocessing
 import subprocess
 import os
 import sys
+import subprocess
+import re
 from typing import Dict, List, Tuple, Any, Optional
 
 # Import settings from config
@@ -114,7 +116,8 @@ def get_avg_z(object_data):
 
 def reset_usb_device(device_id=None):
     """
-    Attempt to reset the USB device programmatically 
+    Reset USB device by cutting power to the specific USB port used by the OAK camera
+    on a Raspberry Pi, then turning it back on after 3 seconds.
     
     Args:
         device_id (str): Optional device ID to match
@@ -122,90 +125,189 @@ def reset_usb_device(device_id=None):
     Returns:
         bool: True if reset was successful, False otherwise
     """
+    # Set up logging
+    logger = logging.getLogger(__name__)
+    
     try:
-        # Find DepthAI devices
-        logger.info("Looking for DepthAI devices to reset...")
+        logger.info("Looking for OAK camera to reset...")
         
-        # First attempt: Using DepthAI API
-        devices = dai.Device.getAllAvailableDevices()
-        
-        if devices:
-            logger.info(f"Found {len(devices)} DepthAI devices")
+        # Step 1: Find the OAK camera device and its USB port
+        try:
+            # Use lsusb to list all USB devices
+            output = subprocess.check_output(["lsusb", "-v"], stderr=subprocess.PIPE).decode("utf-8")
             
-            for i, device_info in enumerate(devices):
-                mxid = device_info.getMxId()
-                if device_id is None or device_id in mxid:
-                    logger.info(f"Attempting to reset device {mxid}")
+            # Look for Luxonis/OAK/DepthAI devices
+            matches = []
+            
+            # Parse the lsusb output to find the device
+            bus_device = None
+            for line in output.split('\n'):
+                # Look for the bus and device IDs
+                if "Bus " in line and "Device " in line:
+                    bus_device = line.split()[1:4:2]  # Extract bus and device numbers
+                
+                # Look for Luxonis, DepthAI or OAK identifiers
+                if any(x in line for x in ["Luxonis", "DepthAI", "OAK"]) and bus_device:
+                    bus = bus_device[0]
+                    device = bus_device[1].rstrip(':')
+                    matches.append((bus, device))
+                    logger.info(f"Found OAK camera at Bus {bus} Device {device}")
+            
+            # Filter by device_id if provided
+            if device_id and matches:
+                # Get more detailed information for each device to check MxID
+                filtered_matches = []
+                for bus, device in matches:
                     try:
-                        # Try to open and immediately close with USB reset flag
-                        with dai.Device(dai.OpenVINO.VERSION_2021_4, mxid, True) as d:
-                            # Force device reset
-                            d.close()
-                            logger.info(f"Successfully reset device {mxid}")
-                            time.sleep(2)  # Allow time for device to restart
+                        # Get device details using udevadm
+                        cmd = f"udevadm info -q property -n /dev/bus/usb/{bus}/{device}"
+                        details = subprocess.check_output(cmd, shell=True).decode("utf-8")
+                        if device_id in details:
+                            filtered_matches.append((bus, device))
+                            logger.info(f"Matched device ID {device_id} at Bus {bus} Device {device}")
+                    except Exception as e:
+                        logger.error(f"Error getting device details: {str(e)}")
+                
+                matches = filtered_matches if filtered_matches else matches
+            
+            if not matches:
+                logger.error("No OAK camera found")
+                return False
+            
+            # Use the first match if multiple found
+            bus, device = matches[0]
+            
+            # Step 2: Find the USB port path using the bus and device numbers
+            try:
+                # Get the USB device path
+                cmd = f"udevadm info -q path -n /dev/bus/usb/{bus}/{device}"
+                usb_path = subprocess.check_output(cmd, shell=True).decode("utf-8").strip()
+                
+                # Extract the port number from the path
+                # The path is like: /devices/platform/soc/3f980000.usb/usb1/1-1/1-1.2
+                # We want to extract just the port part: 1-1.2
+                port_match = re.search(r'usb\d+/(\d+-\d+(?:\.\d+)*)', usb_path)
+                if not port_match:
+                    logger.error(f"Could not extract port from path: {usb_path}")
+                    return False
+                
+                port = port_match.group(1)
+                logger.info(f"Found USB port: {port}")
+                
+                # Step 3: Cut power to the USB port
+                # Find the control file for the port
+                hub_path = f"/sys/bus/usb/devices/{port.split('.')[0]}/port{port.split('.')[-1]}"
+                power_control = f"{hub_path}/power/control"
+                
+                # First check if the power control file exists
+                check_cmd = f"ls {power_control}"
+                try:
+                    subprocess.check_output(check_cmd, shell=True, stderr=subprocess.PIPE)
+                except subprocess.CalledProcessError:
+                    # If the direct method fails, we'll try the alternative method
+                    hub_path = f"/sys/bus/usb/devices/{port}"
+                    power_control = f"{hub_path}/power/control"
+                
+                # Step 3: Disable and re-enable the device by controlling power
+                logger.info(f"Cutting power to USB port {port}...")
+                
+                # First method: Try using power/control if available
+                try:
+                    # Set power mode to auto (will allow power to be cut)
+                    subprocess.run(f"echo auto > {power_control}", shell=True, check=True)
+                    
+                    # Remove power by removing the device
+                    subprocess.run(f"echo 0 > {hub_path}/remove", shell=True, check=True)
+                    logger.info("Power cut successfully")
+                    
+                    # Wait 3 seconds
+                    time.sleep(3)
+                    
+                    # Scan for devices to restore power
+                    logger.info("Restoring power...")
+                    parent_hub = '/'.join(hub_path.split('/')[:-1])
+                    subprocess.run(f"echo 1 > {parent_hub}/scan", shell=True, check=True)
+                    logger.info("Power restored successfully")
+                    
+                    # Wait for device to initialize
+                    time.sleep(2)
+                    return True
+                    
+                except Exception as e:
+                    logger.error(f"Error using power control: {str(e)}")
+                    
+                    # Step 4: Alternative method using uhubctl if available
+                    try:
+                        logger.info("Trying alternative method with uhubctl...")
+                        
+                        # Check if uhubctl is installed
+                        subprocess.check_output(["which", "uhubctl"])
+                        
+                        # Extract port number for uhubctl format
+                        port_nums = port.split('.')
+                        root_port = port_nums[0]
+                        hub_port = port_nums[-1] if len(port_nums) > 1 else None
+                        
+                        if hub_port:
+                            # Turn off power
+                            cmd = f"uhubctl -l {root_port} -p {hub_port} -a 0"
+                            subprocess.run(cmd, shell=True, check=True)
+                            logger.info(f"Power cut successfully using uhubctl")
+                            
+                            # Wait 3 seconds
+                            time.sleep(3)
+                            
+                            # Turn power back on
+                            cmd = f"uhubctl -l {root_port} -p {hub_port} -a 1"
+                            subprocess.run(cmd, shell=True, check=True)
+                            logger.info(f"Power restored successfully using uhubctl")
+                            
+                            # Wait for device to initialize
+                            time.sleep(2)
                             return True
                     except Exception as e:
-                        logger.error(f"Failed to reset device {mxid}: {str(e)}")
-        
-        # Second attempt: Use system-specific USB reset tools
-        if sys.platform == "linux" or sys.platform == "linux2":
-            # Try using Linux-specific usbreset utility or libusb
-            try:
-                # Find USB device with depthai in name or description
-                logger.info("Attempting Linux USB reset...")
-                
-                # Try using lsusb to find the device
-                output = subprocess.check_output("lsusb", shell=True).decode("utf-8")
-                lines = output.strip().split("\n")
-                
-                # Look for DepthAI or LUXONIS devices
-                for line in lines:
-                    if "Luxonis" in line or "DepthAI" in line or "Movidius" in line:
-                        parts = line.split()
-                        if len(parts) >= 6:
-                            bus = parts[1]
-                            device = parts[3].rstrip(":")
+                        logger.error(f"Error using uhubctl method: {str(e)}")
+                        
+                        # Step 5: Fallback to the bind/unbind method if other methods fail
+                        try:
+                            logger.info("Falling back to bind/unbind method...")
                             
-                            logger.info(f"Found DepthAI device at Bus {bus} Device {device}")
+                            # Get the driver
+                            cmd = f"basename $(readlink -f /sys/bus/usb/devices/{port}/driver)"
+                            driver = subprocess.check_output(cmd, shell=True).decode().strip()
                             
-                            # Attempt reset using unbind/bind technique (safer)
-                            try:
-                                # Get USB path
-                                command = f"sudo sh -c 'echo {bus}-{device} > /sys/bus/usb/drivers/usb/unbind && sleep 2 && echo {bus}-{device} > /sys/bus/usb/drivers/usb/bind'"
-                                subprocess.run(command, shell=True, timeout=5)
-                                logger.info(f"Successfully reset USB device at {bus}:{device}")
-                                time.sleep(3)  # Give device time to reset
-                                return True
-                            except Exception as e:
-                                logger.error(f"Error unbinding/binding USB device: {str(e)}")
-            except Exception as e:
-                logger.error(f"Linux USB reset failed: {str(e)}")
-                
-        elif sys.platform == "darwin":
-            # macOS doesn't have a simple command-line tool for resetting USB devices
-            logger.info("USB reset on macOS is not supported programmatically")
+                            # Unbind
+                            unbind_cmd = f"echo '{port}' > /sys/bus/usb/drivers/{driver}/unbind"
+                            subprocess.run(unbind_cmd, shell=True, check=True)
+                            logger.info("Device unbound successfully")
+                            
+                            # Wait 3 seconds
+                            time.sleep(3)
+                            
+                            # Bind again
+                            bind_cmd = f"echo '{port}' > /sys/bus/usb/drivers/{driver}/bind"
+                            subprocess.run(bind_cmd, shell=True, check=True)
+                            logger.info("Device bound successfully")
+                            
+                            # Wait for device to initialize
+                            time.sleep(2)
+                            return True
+                            
+                        except Exception as e:
+                            logger.error(f"Error using bind/unbind method: {str(e)}")
             
-        elif sys.platform == "win32":
-            # On Windows, using devcon would be ideal, but it's not available by default
-            logger.info("Attempting Windows USB reset...")
-            try:
-                # Using PowerShell to reset USB devices
-                # This requires admin privileges
-                command = 'powershell "Get-PnpDevice | Where-Object {$_.FriendlyName -like \'*DepthAI*\'} | Disable-PnpDevice -Confirm:$false; Start-Sleep -Seconds 2; Get-PnpDevice | Where-Object {$_.FriendlyName -like \'*DepthAI*\'} | Enable-PnpDevice -Confirm:$false"'
-                subprocess.run(command, shell=True, timeout=10)
-                logger.info("Successfully reset USB devices using PowerShell")
-                time.sleep(3)  # Allow time for device to restart
-                return True
             except Exception as e:
-                logger.error(f"Windows USB reset failed: {str(e)}")
+                logger.error(f"Error finding USB port: {str(e)}")
                 
-        logger.info("Could not reset USB device through available methods")
+        except Exception as e:
+            logger.error(f"Error finding OAK camera: {str(e)}")
+        
+        logger.error("Could not reset USB device using any available method")
         return False
         
     except Exception as e:
         logger.error(f"Error in reset_usb_device: {str(e)}")
         return False
-
 
 def recover_from_error(device, error_message, last_recovery_time, status_queue):
     """
