@@ -241,9 +241,6 @@ def update_combined_frame(combined_frame, video_frame=None, best_detection=None,
         # Copy video frame to video region
         video_region[:video_frame.shape[0], :video_frame.shape[1]] = video_frame
     else:
-        # Display "No video feed" message
-        cv2.putText(video_region, "No Video Feed Available", (150, 200), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
     
     # Draw border around video region
     cv2.rectangle(combined_frame, (49, 49), (691, 451), (100, 100, 100), 1)
