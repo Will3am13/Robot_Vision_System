@@ -497,9 +497,6 @@ def main():
                 
                 logger.info(f"Processing {battery_type} (confidence: {best_detection['confidence']:.2f})")
                 
-                # Delay
-                time.sleep(3)
-                
                 # Send pick and place command to robot process
                 robot_cmd_queue.put({
                     "command": "pick_and_place",
