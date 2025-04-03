@@ -423,7 +423,7 @@ Future scalability considerations, such as additional sensors or integration wit
 
 The system was designed using a process of functional decomposition on multiple levels to determine the necessary input and output parameters for each subsystem. At the most basic level (Level Zero), the system processes video data and depth measurements as inputs. It will then output the robot path to sort object(s). This is detailed in Figure 3. The core processes revolve around handling the input data from the OAK-D-SR camera, and translating that into object classification and localization as well as a path to the object.
 
-![Level Zero System](https://imgur.com/a/F2QG7EN)
+![Level Zero System]([https://imgur.com/a/F2QG7EN](https://imgur.com/a/F2QG7EN))
 
 *Figure 3: Level Zero System (placeholder image)*
 
