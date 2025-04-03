@@ -2,6 +2,7 @@ import time
 import os
 import cv2
 import multiprocessing
+import multiprocessing.resource_tracker
 import signal
 import logging
 import queue
@@ -52,22 +53,57 @@ def init_system():
     # Start robot control process
     robot_process, robot_cmd_queue, robot_status_queue = start_robot_control_process()
     
-    # Wait for processes to start
+    # Wait for processes to start with increased timeouts and proper status checking
+    oak_running = False
+    robot_ready = False
+    max_wait_time = 120  # Increased timeout to 120 seconds total
+    start_time = time.time()
+    
+    logger.info("Waiting for system components to initialize...")
+    
     try:
-        oak_status = oak_status_queue.get(timeout=30)
-        logger.info(f"Oak camera status: {oak_status}")
+        while not (oak_running and robot_ready) and (time.time() - start_time < max_wait_time):
+            # Check Oak camera status (non-blocking)
+            try:
+                if not oak_status_queue.empty():
+                    oak_status = oak_status_queue.get_nowait()
+                    logger.info(f"Oak camera status update: {oak_status}")
+                    if oak_status.get("status") == "running":
+                        oak_running = True
+            except Exception as e:
+                logger.warning(f"Error checking Oak status: {str(e)}")
+            
+            # Check robot status (non-blocking)
+            try:
+                if not robot_status_queue.empty():
+                    robot_status = robot_status_queue.get_nowait()
+                    logger.info(f"Robot status update: {robot_status}")
+                    if robot_status.get("status") == "ready":
+                        robot_ready = True
+            except Exception as e:
+                logger.warning(f"Error checking robot status: {str(e)}")
+            
+            # If not ready yet, wait a bit
+            if not (oak_running and robot_ready):
+                time.sleep(1)
+                
+                # Periodically log waiting status
+                elapsed = time.time() - start_time
+                if elapsed % 10 < 0.1:  # Log approximately every 10 seconds
+                    logger.info(f"Still waiting for initialization: Oak running: {oak_running}, Robot ready: {robot_ready}, Elapsed: {elapsed:.1f}s")
         
-        robot_status = robot_status_queue.get(timeout=30)
-        logger.info(f"Robot status: {robot_status}")
-        
-        if oak_status.get("status") != "running" or robot_status.get("status") != "ready":
-            logger.error("Failed to initialize system components")
+        # Check if timeout occurred
+        if not (oak_running and robot_ready):
+            logger.error(f"Timeout after {max_wait_time}s waiting for system components to initialize")
             # Clean up
             shutdown_system(oak_process, oak_cmd_queue, robot_process, robot_cmd_queue)
             return None
             
-    except queue.Empty:
-        logger.error("Timeout waiting for system components to initialize")
+        # Both components are ready
+        logger.info("All system components initialized successfully")
+        
+    except Exception as e:
+        logger.error(f"Error during initialization: {str(e)}")
         # Clean up
         shutdown_system(oak_process, oak_cmd_queue, robot_process, robot_cmd_queue)
         return None
@@ -91,29 +127,74 @@ def shutdown_system(oak_process, oak_cmd_queue, robot_process, robot_cmd_queue):
     """
     logger.info("Shutting down system")
     
+    # Close all queues to avoid semaphore leaks
+    def close_queue_safely(q):
+        try:
+            if q is not None:
+                q.close()
+                logger.debug("Queue closed successfully")
+        except Exception as e:
+            logger.warning(f"Error closing queue: {str(e)}")
+    
     # Send stop commands to processes
     if oak_process.is_alive():
         logger.info("Sending stop command to Oak camera")
-        oak_cmd_queue.put({"command": "stop"})
+        try:
+            oak_cmd_queue.put({"command": "stop"}, timeout=2)
+        except Exception as e:
+            logger.warning(f"Error sending stop command to Oak camera: {str(e)}")
+            
         oak_process.join(timeout=5)
         
         if oak_process.is_alive():
             logger.warning("Oak camera process did not stop gracefully, terminating")
             oak_process.terminate()
-            oak_process.join()
+            # Additional cleanup - kill if terminate doesn't work
+            try:
+                if oak_process.is_alive():
+                    logger.warning("Process still alive after terminate, killing...")
+                    import signal
+                    os.kill(oak_process.pid, signal.SIGKILL)
+            except Exception as e:
+                logger.error(f"Error killing process: {str(e)}")
+            oak_process.join(timeout=1)
     
     if robot_process.is_alive():
         logger.info("Sending stop command to robot control")
-        robot_cmd_queue.put({"command": "stop"})
+        try:
+            robot_cmd_queue.put({"command": "stop"}, timeout=2)
+        except Exception as e:
+            logger.warning(f"Error sending stop command to robot control: {str(e)}")
+            
         robot_process.join(timeout=10)
         
         if robot_process.is_alive():
             logger.warning("Robot control process did not stop gracefully, terminating")
             robot_process.terminate()
-            robot_process.join()
+            # Additional cleanup - kill if terminate doesn't work
+            try:
+                if robot_process.is_alive():
+                    logger.warning("Process still alive after terminate, killing...")
+                    import signal
+                    os.kill(robot_process.pid, signal.SIGKILL)
+            except Exception as e:
+                logger.error(f"Error killing process: {str(e)}")
+            robot_process.join(timeout=1)
+    
+    # Close all queues
+    logger.info("Closing queues...")
+    close_queue_safely(oak_cmd_queue)
+    close_queue_safely(robot_cmd_queue)
     
     # Final garbage collection
     gc.collect()
+    
+    # Explicitly clear shared memory
+    try:
+        multiprocessing.resource_tracker._resource_tracker.clear()
+        logger.info("Cleared multiprocessing resources")
+    except Exception as e:
+        logger.warning(f"Error clearing multiprocessing resources: {str(e)}")
     
     logger.info("System shutdown complete")
 
@@ -375,11 +456,64 @@ def main():
     logger.info("Shutdown complete")
 
 
+def cleanup_multiprocessing():
+    """
+    Clean up multiprocessing resources including leaked semaphores
+    """
+    try:
+        # Clear process resources
+        multiprocessing.resource_tracker._resource_tracker.clear()
+        logger.info("Cleared multiprocessing resources")
+        
+        # For Python 3.8+ specific issue with leaked semaphores
+        try:
+            # Access private _fd2ref to find and clear leaked semaphores
+            if hasattr(multiprocessing.resource_tracker._resource_tracker, "_fd2ref"):
+                leaked_sems = list(multiprocessing.resource_tracker._resource_tracker._fd2ref.items())
+                logger.info(f"Found {len(leaked_sems)} resource tracker references")
+                
+                for fd, (resource_type, _) in leaked_sems:
+                    if resource_type == "semaphore":
+                        logger.info(f"Cleaning up semaphore with fd {fd}")
+                        try:
+                            multiprocessing.resource_tracker._resource_tracker._remove_resource(
+                                "semaphore", fd
+                            )
+                        except Exception as e:
+                            logger.warning(f"Error removing semaphore {fd}: {str(e)}")
+        except Exception as e:
+            logger.warning(f"Error cleaning up leaked semaphores: {str(e)}")
+            
+    except Exception as e:
+        logger.error(f"Error in cleanup_multiprocessing: {str(e)}")
+
+
 if __name__ == "__main__":
     try:
+        # Check for pre-existing leaked resources
+        try:
+            cleanup_multiprocessing()
+        except Exception as e:
+            logger.warning(f"Pre-cleanup warning: {str(e)}")
+            
+        # Set spawn method explicitly at program start
+        multiprocessing.set_start_method('spawn', force=True)
+        
+        # Run main application
         main()
+        
+        # Final cleanup
+        cleanup_multiprocessing()
+        
     except Exception as e:
         logger.critical(f"Unhandled exception in main: {str(e)}", exc_info=True)
-        # Ensure processes are terminated even in case of unhandled exceptions
+        
+        try:
+            # Ensure cleanup happens even after exceptions
+            cleanup_multiprocessing()
+        except:
+            pass
+            
+        # Exit with error code
         import sys
         sys.exit(1)
