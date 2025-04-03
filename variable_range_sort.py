@@ -21,29 +21,32 @@ CBATTERY_BIN_COORD = [99.8, -186.7, 162.6, 172.39, -2.74, -14.16]  # CBattery bi
 # Distance-based configuration settings
 DISTANCE_SETTINGS = {
     "too_close": {
-        "max_distance": 130,
+        "max_distance": 65,
         "message": "Object too close to robot base"
     },
     "short_range": {
-        "min_distance": 130,
-        "max_distance": 140,
+        "min_distance": 65,
+        "max_distance": 130,
         "pick_orientation": [-142, 30, 59],
-        "offsets": [75, 10, -20]
+        "offsets": [75, 10, -20],
+        "min_z": 60  # Minimum Z value for short range
     },
     "normal_range": {
-        "min_distance": 140,
+        "min_distance": 130,
         "max_distance": 280,
         "pick_orientation": [180, 0, 45],
-        "offsets": [0, 5, 0]
+        "offsets": [0, 5, 0],
+        "min_z": 105  # Minimum Z value for normal range
     },
     "long_range": {
         "min_distance": 280,
-        "max_distance": 300,
+        "max_distance": 320,
         "pick_orientation": [150, -24, 50],
-        "offsets": [-75, 10, -20]
+        "offsets": [-50, 5, 0],
+        "min_z": 70  # Minimum Z value for long range
     },
     "too_far": {
-        "min_distance": 300,
+        "min_distance": 320,
         "message": "Object out of range"
     }
 }
@@ -56,6 +59,7 @@ PLACE_ORIENTATION = [152.06, -20.98, 1.67]  # Fixed pitch, roll, yaw for placing
 X_OFFSET = 0  # mm offset in X direction
 Y_OFFSET = 5  # mm offset in Y direction
 Z_OFFSET = 0  # mm offset in Z direction
+MIN_Z = 105  # Default minimum Z value - will be updated based on distance
 
 
 # Linear Ridge transformation setup
@@ -160,7 +164,7 @@ def update_settings_based_on_distance(distance):
     Returns:
         dict: Contains 'valid' (bool), 'message' (str), and 'range' (str) fields
     """
-    global PICK_ORIENTATION, X_OFFSET, Y_OFFSET, Z_OFFSET
+    global PICK_ORIENTATION, X_OFFSET, Y_OFFSET, Z_OFFSET, MIN_Z
 
     # Initialize return values
     result = {
@@ -186,15 +190,16 @@ def update_settings_based_on_distance(distance):
         # Short range settings
         PICK_ORIENTATION = DISTANCE_SETTINGS["short_range"]["pick_orientation"]
         X_OFFSET, Y_OFFSET, Z_OFFSET = DISTANCE_SETTINGS["short_range"]["offsets"]
+        MIN_Z = DISTANCE_SETTINGS["short_range"]["min_z"]  # Update minimum Z value
         result['valid'] = True
         result['message'] = f"Using short range settings (distance: {distance:.1f}mm)"
         result['range'] = "short_range"
 
-    elif DISTANCE_SETTINGS["normal_range"]["min_distance"] <= distance <= DISTANCE_SETTINGS["normal_range"][
-        "max_distance"]:
+    elif DISTANCE_SETTINGS["normal_range"]["min_distance"] <= distance <= DISTANCE_SETTINGS["normal_range"]["max_distance"]:
         # Normal range settings
         PICK_ORIENTATION = DISTANCE_SETTINGS["normal_range"]["pick_orientation"]
         X_OFFSET, Y_OFFSET, Z_OFFSET = DISTANCE_SETTINGS["normal_range"]["offsets"]
+        MIN_Z = DISTANCE_SETTINGS["normal_range"]["min_z"]  # Update minimum Z value
         result['valid'] = True
         result['message'] = f"Using normal range settings (distance: {distance:.1f}mm)"
         result['range'] = "normal_range"
@@ -203,6 +208,7 @@ def update_settings_based_on_distance(distance):
         # Long range settings
         PICK_ORIENTATION = DISTANCE_SETTINGS["long_range"]["pick_orientation"]
         X_OFFSET, Y_OFFSET, Z_OFFSET = DISTANCE_SETTINGS["long_range"]["offsets"]
+        MIN_Z = DISTANCE_SETTINGS["long_range"]["min_z"]  # Update minimum Z value
         result['valid'] = True
         result['message'] = f"Using long range settings (distance: {distance:.1f}mm)"
         result['range'] = "long_range"
@@ -218,24 +224,27 @@ def transform_point(cam_point):
     # Apply transformation using the ridge regression model
     result = transform_func(cam_point_np.reshape(1, -1))
 
-    # Calculate distance from origin in XY plane
-    distance = calculate_xy_distance(result[0][0], result[0][1])
+    # Store the original coordinates before applying any offsets
+    original_coords = result[0].copy()
+   
+    # Calculate distance from origin in XY plane BEFORE applying any offsets
+    distance = calculate_xy_distance(original_coords[0], original_coords[1])
 
     # Update settings based on distance
     settings = update_settings_based_on_distance(distance)
 
-    # If valid range, apply offsets
+    # If valid range, apply offsets AFTER distance calculation and settings update
     if settings['valid']:
         result[0][0] += X_OFFSET
         result[0][1] += Y_OFFSET
         result[0][2] += Z_OFFSET
 
-    # Enforce minimum Z value of 65mm
-    if result[0][2] < 65:
-        result[0][2] = 65
+    # Enforce minimum Z value based on the current range setting
+    if result[0][2] < MIN_Z:
+        result[0][2] = MIN_Z
 
-    # Return the result as a 1D array
-    return result[0], settings
+    # Return the result as a 1D array, settings, and the original distance calculation
+    return result[0], settings, distance
 
 
 # Function to check if coordinate values are within the safe working range
@@ -361,15 +370,17 @@ def initialize_robot():
 def pick_and_place_battery(mc, camera_coords, is_cbattery=False):
     """Pick up a battery at the given coordinates and place it in the appropriate bin"""
     # Transform camera coordinates to robot coordinates with distance-based settings
-    robot_xyz, settings = transform_point(camera_coords)
-
+    # Now also get the original distance directly from the transform_point function
+    robot_xyz, settings, original_distance = transform_point(camera_coords)
+   
     # Print information about the coordinates and settings
     print(f"Camera coordinates: {camera_coords}")
     print(f"Transformed robot coordinates: {robot_xyz}")
-    print(f"Distance from origin: {calculate_xy_distance(robot_xyz[0], robot_xyz[1]):.1f}mm")
+    print(f"Original distance from origin (before offsets): {original_distance:.1f}mm")
     print(f"Range classification: {settings['range']}")
     print(f"Settings: {settings['message']}")
     print(f"Applied offsets: X={X_OFFSET}mm, Y={Y_OFFSET}mm, Z={Z_OFFSET}mm")
+    print(f"Minimum Z value: {MIN_Z}mm")
     print(f"Pick orientation: {PICK_ORIENTATION}")
 
     # If the object is out of valid range, return with error
@@ -472,6 +483,9 @@ def main():
 
         print("Vision system running. Press 'p' to pick up detected battery, 'a' to enable auto-mode, 'q' to quit.")
         print("Offset controls are automatically determined based on distance to object.")
+        print(f"Minimum Z values: Short range: {DISTANCE_SETTINGS['short_range']['min_z']}mm, " +
+              f"Normal range: {DISTANCE_SETTINGS['normal_range']['min_z']}mm, " +
+              f"Long range: {DISTANCE_SETTINGS['long_range']['min_z']}mm")
 
         # Tracking variables
         last_processed_time = 0
@@ -531,8 +545,11 @@ def main():
                 avg_z = get_avg_z(class_name, object_id)
 
                 # Transform camera coordinates to robot coordinates to estimate distance
-                robot_xyz, settings = transform_point([x, y, z])
-                distance = calculate_xy_distance(robot_xyz[0], robot_xyz[1])
+                # Update to handle the new return value (original_distance) from transform_point
+                robot_xyz, settings, original_distance = transform_point([x, y, z])
+                
+                # Use the original_distance directly instead of recalculating it
+                distance = original_distance
 
                 # Draw bounding box and information
                 color = class_settings[class_name]["color"]
@@ -580,9 +597,9 @@ def main():
             y_pos = 110
             range_info = [
                 f"<130mm: Too close",
-                f"130-140mm: Short range [-142,30,59] Offset[75,10,-20]",
-                f"140-280mm: Normal range [180,0,45] Offset[0,5,0]",
-                f"280-300mm: Long range [150,-24,50] Offset[-75,10,-20]",
+                f"130-140mm: Short range [-142,30,59] Offset[75,10,-20] Min Z:{DISTANCE_SETTINGS['short_range']['min_z']}mm",
+                f"140-280mm: Normal range [180,0,45] Offset[0,5,0] Min Z:{DISTANCE_SETTINGS['normal_range']['min_z']}mm",
+                f"280-300mm: Long range [150,-24,50] Offset[-50,5,0] Min Z:{DISTANCE_SETTINGS['long_range']['min_z']}mm",
                 f">300mm: Too far"
             ]
 
