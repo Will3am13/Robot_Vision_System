@@ -1,3 +1,5 @@
+# main.py - Entry point that manages all processes and UI
+
 import time
 import os
 import cv2
@@ -201,71 +203,60 @@ def shutdown_system(oak_process, oak_cmd_queue, frame_queue, robot_process, robo
     logger.info("System shutdown complete")
 
 
-def create_status_window():
-    """
-    Create a status window for user interaction
-    
-    Returns:
-        np.ndarray: Initial frame for status window
-    """
-    # Create a black image for status window
-    frame = np.zeros((600, 800, 3), dtype=np.uint8)
-    
-    # Add title
-    cv2.putText(frame, "Battery Sorting System", (10, 30), 
-                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-    
-    # Add instructions
-    cv2.putText(frame, "p: pick  a: toggle auto  q: quit", (10, 60),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
-    
-    # Display distance ranges and their settings
-    cv2.putText(frame, "Distance Ranges:", (10, 90),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
-    
-    y_pos = 110
-    range_info = [
-        f"<{DISTANCE_SETTINGS['too_close']['max_distance']}mm: Too close",
-        f"{DISTANCE_SETTINGS['short_range']['min_distance']}-{DISTANCE_SETTINGS['short_range']['max_distance']}mm: Short range {DISTANCE_SETTINGS['short_range']['pick_orientation']} Offset{DISTANCE_SETTINGS['short_range']['offsets']} Min Z:{DISTANCE_SETTINGS['short_range']['min_z']}mm",
-        f"{DISTANCE_SETTINGS['normal_range']['min_distance']}-{DISTANCE_SETTINGS['normal_range']['max_distance']}mm: Normal range {DISTANCE_SETTINGS['normal_range']['pick_orientation']} Offset{DISTANCE_SETTINGS['normal_range']['offsets']} Min Z:{DISTANCE_SETTINGS['normal_range']['min_z']}mm",
-        f"{DISTANCE_SETTINGS['long_range']['min_distance']}-{DISTANCE_SETTINGS['long_range']['max_distance']}mm: Long range {DISTANCE_SETTINGS['long_range']['pick_orientation']} Offset{DISTANCE_SETTINGS['long_range']['offsets']} Min Z:{DISTANCE_SETTINGS['long_range']['min_z']}mm",
-        f">{DISTANCE_SETTINGS['too_far']['min_distance']}mm: Too far"
-    ]
-    
-    for info in range_info:
-        cv2.putText(frame, info, (10, y_pos),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
-        y_pos += 20
-    
-    return frame
+# Removed create_status_window function since we now use update_combined_frame
 
-
-def update_status_window(frame, best_detection, auto_mode, robot_status, oak_status):
+def update_combined_frame(combined_frame, video_frame=None, best_detection=None, auto_mode=False, robot_status="unknown", oak_status="unknown"):
     """
-    Update the status window with current information
+    Update the combined frame with both status information and video feed
     
     Args:
-        frame (np.ndarray): Frame to update
+        combined_frame (np.ndarray): Combined frame to update
+        video_frame (np.ndarray): Current video frame from Oak camera
         best_detection (dict): Best detection information
         auto_mode (bool): Whether auto mode is enabled
         robot_status (str): Current robot status
         oak_status (str): Current Oak camera status
         
     Returns:
-        np.ndarray: Updated frame
+        np.ndarray: Updated combined frame
     """
-    # Clear the status area
-    frame[200:400, 10:790] = 0
+    # Clear the frame
+    combined_frame.fill(0)
     
-    # Add mode and status information
+    # Define layout regions
+    video_region = combined_frame[50:450, 50:690]  # 640x400 video region
+    status_region = combined_frame[50:450, 720:950]  # Status information region
+    info_region = combined_frame[500:750, 50:950]  # Bottom information region
+    
+    # Add title
+    cv2.putText(combined_frame, "Battery Sorting System", (50, 30), 
+                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
+    
+    # Add video feed if available
+    if video_frame is not None:
+        # Make sure video_frame is the right size
+        if video_frame.shape[:2] != (400, 640):
+            video_frame = cv2.resize(video_frame, (640, 400))
+        
+        # Copy video frame to video region
+        video_region[:video_frame.shape[0], :video_frame.shape[1]] = video_frame
+    else:
+        # Display "No video feed" message
+        cv2.putText(video_region, "No Video Feed Available", (150, 200), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+    
+    # Draw border around video region
+    cv2.rectangle(combined_frame, (49, 49), (691, 451), (100, 100, 100), 1)
+    
+    # Add mode and status information to status region
     mode_text = "AUTO MODE" if auto_mode else "MANUAL MODE"
-    cv2.putText(frame, mode_text, (10, 220), 
+    cv2.putText(status_region, mode_text, (10, 30), 
                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
     
-    cv2.putText(frame, f"Robot Status: {robot_status}", (10, 250),
+    cv2.putText(status_region, f"Robot: {robot_status}", (10, 70),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
     
-    cv2.putText(frame, f"Oak Camera Status: {oak_status}", (10, 280),
+    cv2.putText(status_region, f"Camera: {oak_status}", (10, 100),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
     
     # Add best detection information
@@ -276,33 +267,63 @@ def update_status_window(frame, best_detection, auto_mode, robot_status, oak_sta
         
         color = CLASS_SETTINGS.get(class_name, {}).get("color", (255, 255, 255))
         
-        cv2.putText(frame, f"Best Detection: {class_name} ({confidence:.2f})", 
-                    (10, 310), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+        cv2.putText(status_region, f"Detection: {class_name}", 
+                    (10, 140), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
         
-        cv2.putText(frame, f"Coordinates: X={coords[0]:.1f}mm Y={coords[1]:.1f}mm Z={coords[2]:.1f}mm",
-                    (10, 340), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+        cv2.putText(status_region, f"Confidence: {confidence:.2f}", 
+                    (10, 170), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+        
+        cv2.putText(status_region, f"X: {coords[0]:.1f}mm", 
+                    (10, 200), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+        
+        cv2.putText(status_region, f"Y: {coords[1]:.1f}mm", 
+                    (10, 230), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+        
+        cv2.putText(status_region, f"Z: {coords[2]:.1f}mm", 
+                    (10, 260), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
     else:
-        cv2.putText(frame, "No valid detections", (10, 310),
+        cv2.putText(status_region, "No valid detections", (10, 140),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (150, 150, 150), 1)
     
-    # Display system messages at the bottom
-    cv2.putText(frame, "System Messages:", (10, 400),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+    # Draw border around status region
+    cv2.rectangle(combined_frame, (719, 49), (951, 451), (100, 100, 100), 1)
     
-    # Add system health check status
+    # Add instructions to info region
+    cv2.putText(info_region, "Controls:", (10, 30),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+    
+    cv2.putText(info_region, "p: pick object  a: toggle auto mode  q: quit", (10, 60),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+    
+    # Add distance ranges info
+    cv2.putText(info_region, "Distance Ranges:", (10, 100),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 1)
+    
+    y_pos = 130
+    range_info = [
+        f"<{DISTANCE_SETTINGS['too_close']['max_distance']}mm: Too close",
+        f"{DISTANCE_SETTINGS['short_range']['min_distance']}-{DISTANCE_SETTINGS['short_range']['max_distance']}mm: Short range",
+        f"{DISTANCE_SETTINGS['normal_range']['min_distance']}-{DISTANCE_SETTINGS['normal_range']['max_distance']}mm: Normal range",
+        f"{DISTANCE_SETTINGS['long_range']['min_distance']}-{DISTANCE_SETTINGS['long_range']['max_distance']}mm: Long range",
+        f">{DISTANCE_SETTINGS['too_far']['min_distance']}mm: Too far"
+    ]
+    
+    for info in range_info:
+        cv2.putText(info_region, info, (10, y_pos),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+        y_pos += 25
+    
+    # Add system metrics
     mem_usage = get_memory_usage_mb()
-    cv2.putText(frame, f"Memory Usage: {mem_usage:.1f} MB", (10, 430),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
-    
     cpu_usage = get_cpu_usage()
-    cv2.putText(frame, f"CPU Usage: {cpu_usage}%", (10, 460),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
     
-    # Add screenshot folder information
-    cv2.putText(frame, f"Screenshots: {SCREENSHOT_FOLDER}", (10, 490),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+    cv2.putText(info_region, f"Memory: {mem_usage:.1f} MB | CPU: {cpu_usage}% | Screenshots: {SCREENSHOT_FOLDER}", 
+                (10, 240), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (150, 150, 150), 1)
     
-    return frame
+    # Draw border around info region
+    cv2.rectangle(combined_frame, (49, 499), (951, 751), (100, 100, 100), 1)
+    
+    return combined_frame
 
 
 def get_memory_usage_mb():
@@ -340,14 +361,12 @@ def main():
         robot_process, robot_cmd_queue, robot_status_queue
     ) = system_info
     
-    # Create windows for status and video feed
-    status_frame = create_status_window()
+    # Create a combined window for status and video feed
     cv2.namedWindow("Battery Sorting System", cv2.WINDOW_NORMAL)
-    cv2.resizeWindow("Battery Sorting System", 800, 600)
+    cv2.resizeWindow("Battery Sorting System", 1000, 800)
     
-    # Create a window for the video feed
-    cv2.namedWindow("Camera Feed", cv2.WINDOW_NORMAL)
-    cv2.resizeWindow("Camera Feed", 640, 400)
+    # Initialize a combined frame
+    combined_frame = np.zeros((800, 1000, 3), dtype=np.uint8)
     
     # Tracking variables
     last_processed_time = 0
@@ -355,6 +374,7 @@ def main():
     best_detection = None
     robot_status = "ready"
     oak_status = "running"
+    last_error_time = 0
     
     # Signal handler for graceful shutdown
     def signal_handler(sig, frame):
@@ -372,9 +392,23 @@ def main():
             try:
                 while not oak_status_queue.empty():
                     oak_status_update = oak_status_queue.get_nowait()
-                    oak_status = oak_status_update.get("status", oak_status)
-                    if oak_status == "error":
-                        logger.error(f"Oak camera error: {oak_status_update.get('message', 'Unknown error')}")
+                    new_oak_status = oak_status_update.get("status", oak_status)
+                    
+                    # Check for communication errors
+                    if new_oak_status == "error":
+                        error_message = oak_status_update.get("message", "Unknown error")
+                        logger.error(f"Oak camera error: {error_message}")
+                        
+                        # Check if it's a communication error
+                        if ("Communication exception" in error_message or 
+                            "X_LINK_ERROR" in error_message) and time.time() - last_error_time > 60:
+                            logger.info("Detected communication error - initiating recovery")
+                            oak_cmd_queue.put({"command": "force_recovery"})
+                            last_error_time = time.time()
+                    
+                    # Update status
+                    oak_status = new_oak_status
+                    
             except Exception as e:
                 logger.error(f"Error checking Oak status: {str(e)}")
             
@@ -414,19 +448,19 @@ def main():
             except Exception as e:
                 logger.error(f"Error getting detection: {str(e)}")
             
-            # Update status window
-            status_frame = update_status_window(
-                status_frame, best_detection, auto_mode, robot_status, oak_status
-            )
-            cv2.imshow("Battery Sorting System", status_frame)
-            
-            # Get and display video frame if available
+            # Get video frame if available
+            video_frame = None
             try:
                 if not frame_queue.empty():
                     video_frame = frame_queue.get_nowait()
-                    cv2.imshow("Camera Feed", video_frame)
             except Exception as e:
-                logger.warning(f"Error displaying video frame: {str(e)}")
+                logger.warning(f"Error getting video frame: {str(e)}")
+            
+            # Update combined frame
+            combined_frame = update_combined_frame(
+                combined_frame, video_frame, best_detection, auto_mode, robot_status, oak_status
+            )
+            cv2.imshow("Battery Sorting System", combined_frame)
             
             # Handle key presses
             key = cv2.waitKey(1)
@@ -436,8 +470,13 @@ def main():
                 auto_mode = not auto_mode
                 logger.info(f"Auto mode {'enabled' if auto_mode else 'disabled'}")
             
+            # Force camera recovery
+            elif key == ord('r'):
+                logger.info("User requested camera recovery")
+                oak_cmd_queue.put({"command": "force_recovery"})
+            
             # Quit on 'q' key
-            if key == ord('q'):
+            elif key == ord('q'):
                 logger.info("User requested exit")
                 running = False
                 break
