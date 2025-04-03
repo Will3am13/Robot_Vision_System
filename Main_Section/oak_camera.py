@@ -109,7 +109,7 @@ def get_avg_z(object_data):
     return sum(z_history) / len(z_history)
 
 
-def run_oak_camera(detection_queue, command_queue, status_queue):
+def run_oak_camera(detection_queue, command_queue, status_queue, frame_queue):
     """
     Run the Oak-D-SR camera in a separate process
     
@@ -117,6 +117,7 @@ def run_oak_camera(detection_queue, command_queue, status_queue):
         detection_queue (multiprocessing.Queue): Queue to send detections to main process
         command_queue (multiprocessing.Queue): Queue to receive commands from main process
         status_queue (multiprocessing.Queue): Queue to send status updates to main process
+        frame_queue (multiprocessing.Queue): Queue to send video frames to main process
     """
     logger.info("Starting Oak camera process")
     
@@ -194,6 +195,7 @@ def run_oak_camera(detection_queue, command_queue, status_queue):
         logger.info("Oak camera is now running")
         
         running = True
+        paused = False
         frame_count = 0
         last_gc_time = time.time()
         
@@ -206,6 +208,16 @@ def run_oak_camera(detection_queue, command_queue, status_queue):
                         logger.info("Received stop command")
                         running = False
                         break
+                    elif cmd.get("command") == "pause":
+                        if not paused:
+                            logger.info("Received pause command, pausing camera processing")
+                            paused = True
+                            status_queue.put({"status": "paused"})
+                    elif cmd.get("command") == "resume":
+                        if paused:
+                            logger.info("Received resume command, resuming camera processing")
+                            paused = False
+                            status_queue.put({"status": "running"})
                     elif cmd.get("command") == "reset":
                         logger.info("Received reset command, clearing object tracking data")
                         class_objects = {
@@ -215,9 +227,28 @@ def run_oak_camera(detection_queue, command_queue, status_queue):
                 
                 # Get frames and detections
                 inVideo = qVideo.get()
-                inDet = qDet.get()
-                
                 frame = inVideo.getCvFrame()
+                
+                # If paused, just send status frame but don't process detections
+                if paused:
+                    try:
+                        # Create a paused status frame
+                        paused_frame = frame.copy()
+                        cv2.putText(paused_frame, "CAMERA PAUSED", (50, 50), 
+                                    cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 2)
+                        
+                        # Send paused frame to main process
+                        if frame_queue.qsize() < 2:
+                            frame_queue.put(cv2.resize(paused_frame, (640, 400)), block=False)
+                    except Exception as e:
+                        logger.warning(f"Error sending paused frame: {str(e)}")
+                        
+                    # Sleep to reduce CPU usage while paused
+                    time.sleep(0.1)
+                    continue
+                
+                # Only process detections if not paused
+                inDet = qDet.get()
                 detections = inDet.detections
                 
                 frame_count += 1
@@ -289,6 +320,39 @@ def run_oak_camera(detection_queue, command_queue, status_queue):
                     # Just send the detection information
                     detection_queue.put(best_detection)
                 
+                # Send video frame to main process (only if queue not full to avoid blocking)
+                try:
+                    # Create a smaller version of the frame for display
+                    display_frame = cv2.resize(frame, (640, 400))
+                    
+                    # Add detection visualization to the display frame
+                    for detection in detections:
+                        class_name = "Battery" if detection.label == 0 else "CBattery"
+                        
+                        # Skip if below threshold
+                        if class_name not in CLASS_SETTINGS or detection.confidence < CLASS_SETTINGS[class_name]["threshold"]:
+                            continue
+                            
+                        # Get bounding box coordinates
+                        xmin = int(detection.xmin * display_frame.shape[1])
+                        ymin = int(detection.ymin * display_frame.shape[0])
+                        xmax = int(detection.xmax * display_frame.shape[1])
+                        ymax = int(detection.ymax * display_frame.shape[0])
+                        
+                        # Get the color based on class
+                        color = CLASS_SETTINGS[class_name]["color"]
+                        
+                        # Draw rectangle and text
+                        cv2.rectangle(display_frame, (xmin, ymin), (xmax, ymax), color, 2)
+                        cv2.putText(display_frame, f"{class_name} {detection.confidence:.2f}",
+                                    (xmin, ymin - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+                    
+                    # Put in queue with non-blocking (if queue is full, skip this frame)
+                    if frame_queue.qsize() < 2:  # Only keep recent frames
+                        frame_queue.put(display_frame, block=False)
+                except Exception as e:
+                    logger.warning(f"Error sending frame to main process: {str(e)}")
+                
                 # Periodic garbage collection to prevent memory leaks
                 if current_time - last_gc_time > 10:  # Every 10 seconds
                     gc.collect()
@@ -324,24 +388,25 @@ def start_oak_camera_process():
     Start the Oak camera in a separate process
     
     Returns:
-        tuple: (process, detection_queue, command_queue, status_queue)
+        tuple: (process, detection_queue, command_queue, status_queue, frame_queue)
     """
     # Create queues for communication between processes
     detection_queue = multiprocessing.Queue()
     command_queue = multiprocessing.Queue()
     status_queue = multiprocessing.Queue()
+    frame_queue = multiprocessing.Queue(maxsize=2)  # Limit to 2 frames to prevent memory issues
     
     # Create and start the process
     process = multiprocessing.Process(
         target=run_oak_camera,
-        args=(detection_queue, command_queue, status_queue)
+        args=(detection_queue, command_queue, status_queue, frame_queue)
     )
     process.daemon = True  # Process will terminate when main process exits
     process.start()
     
     logger.info(f"Started Oak camera process (PID: {process.pid})")
     
-    return process, detection_queue, command_queue, status_queue
+    return process, detection_queue, command_queue, status_queue, frame_queue
 
 
 # For testing the Oak camera as a standalone module
@@ -350,7 +415,7 @@ if __name__ == "__main__":
     multiprocessing.set_start_method('spawn')
     
     # Start Oak camera process
-    process, detection_queue, command_queue, status_queue = start_oak_camera_process()
+    process, detection_queue, command_queue, status_queue, frame_queue = start_oak_camera_process()
     
     try:
         print("Oak camera started. Press Ctrl+C to exit.")
@@ -359,6 +424,10 @@ if __name__ == "__main__":
         status = status_queue.get(timeout=10)
         print(f"Oak camera status: {status}")
         
+        # Create window for video feed
+        cv2.namedWindow("Test Feed", cv2.WINDOW_NORMAL)
+        cv2.resizeWindow("Test Feed", 640, 400)
+        
         # Monitor detections for a while
         start_time = time.time()
         while time.time() - start_time < 30:  # Run for 30 seconds
@@ -366,7 +435,22 @@ if __name__ == "__main__":
                 detection = detection_queue.get()
                 print(f"Detection: {detection['class_name']} at {detection['coordinates']}")
             
-            time.sleep(0.1)
+            # Display video feed
+            if not frame_queue.empty():
+                frame = frame_queue.get()
+                cv2.imshow("Test Feed", frame)
+                cv2.waitKey(1)
+            
+            time.sleep(0.01)
+        
+        # Test pause/resume
+        print("Testing pause...")
+        command_queue.put({"command": "pause"})
+        time.sleep(3)
+        
+        print("Testing resume...")
+        command_queue.put({"command": "resume"})
+        time.sleep(3)
         
         # Send stop command
         print("Sending stop command...")
@@ -379,6 +463,7 @@ if __name__ == "__main__":
         print("Interrupted by user")
     finally:
         # Clean up
+        cv2.destroyAllWindows()
         if process.is_alive():
             print("Terminating Oak camera process...")
             process.terminate()
