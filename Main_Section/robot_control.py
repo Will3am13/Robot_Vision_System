@@ -48,7 +48,6 @@ def initialize_robot():
         # Initialize gripper
         logger.info("Calibrating gripper...")
         mc.set_gripper_calibration()
-        time.sleep(3)
         
         # Test open gripper
         logger.info("Testing gripper (opening)...")
