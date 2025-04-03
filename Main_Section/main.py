@@ -48,7 +48,7 @@ def init_system():
     multiprocessing.set_start_method('spawn', force=True)
     
     # Start Oak camera process
-    oak_process, detection_queue, oak_cmd_queue, oak_status_queue = start_oak_camera_process()
+    oak_process, detection_queue, oak_cmd_queue, oak_status_queue, frame_queue = start_oak_camera_process()
     
     # Start robot control process
     robot_process, robot_cmd_queue, robot_status_queue = start_robot_control_process()
@@ -96,7 +96,7 @@ def init_system():
         if not (oak_running and robot_ready):
             logger.error(f"Timeout after {max_wait_time}s waiting for system components to initialize")
             # Clean up
-            shutdown_system(oak_process, oak_cmd_queue, robot_process, robot_cmd_queue)
+            shutdown_system(oak_process, oak_cmd_queue, frame_queue, robot_process, robot_cmd_queue)
             return None
             
         # Both components are ready
@@ -105,23 +105,24 @@ def init_system():
     except Exception as e:
         logger.error(f"Error during initialization: {str(e)}")
         # Clean up
-        shutdown_system(oak_process, oak_cmd_queue, robot_process, robot_cmd_queue)
+        shutdown_system(oak_process, oak_cmd_queue, frame_queue, robot_process, robot_cmd_queue)
         return None
     
     logger.info("System initialization complete")
     return (
-        oak_process, detection_queue, oak_cmd_queue, oak_status_queue,
+        oak_process, detection_queue, oak_cmd_queue, oak_status_queue, frame_queue,
         robot_process, robot_cmd_queue, robot_status_queue
     )
 
 
-def shutdown_system(oak_process, oak_cmd_queue, robot_process, robot_cmd_queue):
+def shutdown_system(oak_process, oak_cmd_queue, frame_queue, robot_process, robot_cmd_queue):
     """
     Shutdown all system components
     
     Args:
         oak_process: Oak camera process
         oak_cmd_queue: Oak command queue
+        frame_queue: Frame queue from Oak camera
         robot_process: Robot control process
         robot_cmd_queue: Robot command queue
     """
@@ -185,6 +186,7 @@ def shutdown_system(oak_process, oak_cmd_queue, robot_process, robot_cmd_queue):
     logger.info("Closing queues...")
     close_queue_safely(oak_cmd_queue)
     close_queue_safely(robot_cmd_queue)
+    close_queue_safely(frame_queue)
     
     # Final garbage collection
     gc.collect()
@@ -334,14 +336,18 @@ def main():
         return
     
     (
-        oak_process, detection_queue, oak_cmd_queue, oak_status_queue,
+        oak_process, detection_queue, oak_cmd_queue, oak_status_queue, frame_queue,
         robot_process, robot_cmd_queue, robot_status_queue
     ) = system_info
     
-    # Create a more informative status window
+    # Create windows for status and video feed
     status_frame = create_status_window()
     cv2.namedWindow("Battery Sorting System", cv2.WINDOW_NORMAL)
     cv2.resizeWindow("Battery Sorting System", 800, 600)
+    
+    # Create a window for the video feed
+    cv2.namedWindow("Camera Feed", cv2.WINDOW_NORMAL)
+    cv2.resizeWindow("Camera Feed", 640, 400)
     
     # Tracking variables
     last_processed_time = 0
@@ -353,7 +359,7 @@ def main():
     # Signal handler for graceful shutdown
     def signal_handler(sig, frame):
         logger.info("Received interrupt signal, shutting down")
-        shutdown_system(oak_process, oak_cmd_queue, robot_process, robot_cmd_queue)
+        shutdown_system(oak_process, oak_cmd_queue, frame_queue, robot_process, robot_cmd_queue)
         cv2.destroyAllWindows()
         exit(0)
     
@@ -376,7 +382,25 @@ def main():
             try:
                 while not robot_status_queue.empty():
                     robot_status_update = robot_status_queue.get_nowait()
-                    robot_status = robot_status_update.get("status", robot_status)
+                    new_robot_status = robot_status_update.get("status", robot_status)
+                    
+                    # If robot status changed, handle camera pausing/resuming
+                    if new_robot_status != robot_status:
+                        logger.info(f"Robot status changed from {robot_status} to {new_robot_status}")
+                        
+                        # If robot is now busy, pause the camera
+                        if new_robot_status == "busy" and robot_status != "busy":
+                            logger.info("Robot is busy. Pausing camera.")
+                            oak_cmd_queue.put({"command": "pause"})
+                        
+                        # If robot is now ready (and was previously busy), resume the camera
+                        elif new_robot_status == "ready" and robot_status == "busy":
+                            logger.info("Robot is ready. Resuming camera.")
+                            oak_cmd_queue.put({"command": "resume"})
+                    
+                    # Update status
+                    robot_status = new_robot_status
+                    
                     if robot_status == "error":
                         logger.error(f"Robot error: {robot_status_update.get('message', 'Unknown error')}")
             except Exception as e:
@@ -395,6 +419,14 @@ def main():
                 status_frame, best_detection, auto_mode, robot_status, oak_status
             )
             cv2.imshow("Battery Sorting System", status_frame)
+            
+            # Get and display video frame if available
+            try:
+                if not frame_queue.empty():
+                    video_frame = frame_queue.get_nowait()
+                    cv2.imshow("Camera Feed", video_frame)
+            except Exception as e:
+                logger.warning(f"Error displaying video frame: {str(e)}")
             
             # Handle key presses
             key = cv2.waitKey(1)
@@ -451,7 +483,7 @@ def main():
     
     # Shutdown system
     logger.info("Shutting down Battery Sorting System")
-    shutdown_system(oak_process, oak_cmd_queue, robot_process, robot_cmd_queue)
+    shutdown_system(oak_process, oak_cmd_queue, frame_queue, robot_process, robot_cmd_queue)
     cv2.destroyAllWindows()
     logger.info("Shutdown complete")
 
