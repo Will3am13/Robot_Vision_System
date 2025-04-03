@@ -4,6 +4,7 @@ import math
 import subprocess
 import time
 import os
+import threading
 
 
 def find_centroid(mask):
@@ -109,185 +110,261 @@ def calculate_distance_from_center(centroid, frame_center):
     return x_diff, y_diff, distance
 
 
-def get_camera_usb_info():
-    """Get information about USB cameras connected to the system"""
+def get_camera_device_path():
+    """Find the specific USB device path for the camera"""
     try:
-        # Run lsusb command to list USB devices
+        # Run v4l2-ctl --list-devices to find video devices
+        result = subprocess.run(['v4l2-ctl', '--list-devices'], stdout=subprocess.PIPE, text=True)
+        output = result.stdout.strip()
+        
+        # Look for a camera device
+        device_sections = output.split('\n\n')
+        camera_path = None
+        
+        for section in device_sections:
+            lines = section.strip().split('\n')
+            if len(lines) >= 2:
+                if any(cam_term in lines[0].lower() for cam_term in ['cam', 'webcam', 'video', 'uvc']):
+                    # Found a likely camera, get its video device path
+                    for line in lines[1:]:
+                        if '/dev/video' in line:
+                            camera_path = line.strip()
+                            break
+                    if camera_path:
+                        break
+        
+        if camera_path:
+            # Get the real path to the device
+            result = subprocess.run(['readlink', '-f', camera_path], stdout=subprocess.PIPE, text=True)
+            real_path = result.stdout.strip()
+            
+            # Extract the device name (e.g., "video0")
+            device_name = os.path.basename(real_path)
+            
+            return {
+                'device_path': camera_path,
+                'real_path': real_path,
+                'device_name': device_name
+            }
+        
+        return None
+    except Exception as e:
+        print(f"Error finding camera device: {e}")
+        return None
+
+
+def find_specific_camera_usb_port():
+    """Find the specific USB port where the camera is connected"""
+    try:
+        camera_info = get_camera_device_path()
+        if not camera_info:
+            print("Could not identify camera device")
+            return None
+            
+        # Use sysfs to find the USB device for this video device
+        # Example path: /sys/class/video4linux/video0/device/
+        video_device_dir = f"/sys/class/video4linux/{camera_info['device_name']}"
+        
+        if not os.path.exists(video_device_dir):
+            print(f"Video device directory not found: {video_device_dir}")
+            return None
+            
+        # Navigate up the USB device tree to find the specific port
+        # Try to find a directory structure that includes "usb"
+        result = subprocess.run(['find', video_device_dir, '-name', '*usb*', '-type', 'd'], 
+                              stdout=subprocess.PIPE, text=True)
+        usb_paths = result.stdout.strip().split('\n')
+        
+        for path in usb_paths:
+            if path and 'usb' in path:
+                # Look for a directory pattern that includes a port number
+                # USB paths often include a port identifier like "1-1.2" where:
+                # - 1-1 indicates hub-port
+                # - .2 indicates the specific port on that hub
+                parts = path.split('/')
+                for part in parts:
+                    if '-' in part and any(c.isdigit() for c in part):
+                        # This looks like a USB port identifier (e.g., "1-1.2")
+                        port_id = part
+                        # Get the full physical port path
+                        port_path = f"/sys/bus/usb/devices/{port_id}"
+                        if os.path.exists(port_path):
+                            return {
+                                'port_id': port_id,
+                                'port_path': port_path,
+                                'device_name': camera_info['device_name']
+                            }
+        
+        # If we couldn't find a specific port, try a general approach
+        # Find all USB devices
         result = subprocess.run(['lsusb'], stdout=subprocess.PIPE, text=True)
         usb_devices = result.stdout.strip().split('\n')
         
-        # Filter for devices that might be cameras
-        camera_devices = []
+        # Look for a camera device in the USB list
         for device in usb_devices:
-            # Common camera-related keywords
-            if any(keyword in device.lower() for keyword in ['cam', 'webcam', 'video', 'logitech', 'microsoft', 'uvc']):
-                camera_devices.append(device)
+            if any(cam_term in device.lower() for cam_term in ['cam', 'webcam', 'camera', 'video', 'uvc']):
+                parts = device.split()
+                if len(parts) >= 6:
+                    bus = parts[1].zfill(3)  # Zero-pad to 3 digits
+                    device_num = parts[3].rstrip(':').zfill(3)  # Remove trailing colon and zero-pad
+                    port_id = f"{bus}/{device_num}"
+                    port_path = f"/dev/bus/usb/{bus}/{device_num}"
+                    return {
+                        'port_id': port_id,
+                        'port_path': port_path,
+                        'device_name': camera_info['device_name']
+                    }
         
-        # If we found any potential cameras, return the first one's bus and device IDs
-        if camera_devices:
-            # Extract bus and device IDs from the first result (e.g., "Bus 001 Device 005: ID 046d:0825 Logitech")
-            parts = camera_devices[0].split()
-            if len(parts) >= 4:
-                bus = parts[1]
-                device = parts[3].rstrip(':')
-                return {
-                    'bus': bus,
-                    'device': device,
-                    'description': camera_devices[0]
-                }
-        
-        # If we couldn't identify a camera device specifically
         return None
     except Exception as e:
-        print(f"Error getting camera USB info: {e}")
+        print(f"Error finding specific camera USB port: {e}")
         return None
 
 
-def find_usb_hub_path():
-    """Find the USB hub path for the camera"""
-    try:
-        # Get camera USB info
-        camera_info = get_camera_usb_info()
-        if not camera_info:
-            print("Could not identify camera USB device")
-            return None
-            
-        # Look for the camera in the sys filesystem
-        result = subprocess.run(['find', '/sys/bus/usb/devices/', '-name', 'video*'], 
-                               stdout=subprocess.PIPE, text=True)
-        video_paths = result.stdout.strip().split('\n')
-        
-        # Try to find a path containing both "usb" and "hub"
-        for path in video_paths:
-            if not path:  # Skip empty lines
-                continue
-                
-            # Get the device path by navigating up the directory tree
-            device_path = os.path.dirname(path)
-            
-            # Check if this is the path we're looking for
-            if os.path.exists(f"{device_path}/busnum") and os.path.exists(f"{device_path}/devnum"):
-                try:
-                    with open(f"{device_path}/busnum", 'r') as f:
-                        busnum = f.read().strip()
-                    with open(f"{device_path}/devnum", 'r') as f:
-                        devnum = f.read().strip()
-                        
-                    # If this matches our camera bus and device, return the parent hub path
-                    if busnum == camera_info['bus'] and devnum == camera_info['device']:
-                        # Navigate upwards to find a hub
-                        current_path = device_path
-                        for _ in range(3):  # Don't go too many levels up
-                            current_path = os.path.dirname(current_path)
-                            if "hub" in current_path:
-                                return current_path
-                except Exception as e:
-                    print(f"Error checking device path {device_path}: {e}")
-        
-        # If we couldn't find a specific hub path, try to use direct USB control
-        return f"/sys/bus/usb/devices/{camera_info['bus']}-{camera_info['device']}"
-    except Exception as e:
-        print(f"Error finding USB hub path: {e}")
-        return None
-
-
-def toggle_usb_power_method1(hub_path, turn_on=True):
-    """Toggle power to a USB port using sysfs (Method 1)"""
-    if not hub_path:
-        print("No USB hub path specified")
+def control_specific_usb_port(port_info, turn_on=True):
+    """Control power to a specific USB port"""
+    if not port_info:
+        print("No USB port information available")
         return False
         
     try:
-        # Some hubs support power control via authorized attribute
-        authorized_path = f"{hub_path}/authorized"
-        if os.path.exists(authorized_path):
-            with open(authorized_path, 'w') as f:
-                f.write('1' if turn_on else '0')
-            print(f"USB power {'ON' if turn_on else 'OFF'} using authorized attribute")
+        # Method 1: Try using the authorized attribute if available
+        if 'port_path' in port_info and os.path.exists(port_info['port_path']):
+            authorized_path = f"{port_info['port_path']}/authorized"
+            if os.path.exists(authorized_path):
+                with open(authorized_path, 'w') as f:
+                    f.write('1' if turn_on else '0')
+                print(f"USB port power set to {'ON' if turn_on else 'OFF'} using authorized attribute")
+                return True
+        
+        # Method 2: Try using uhubctl if installed (more precise control)
+        try:
+            # Check if uhubctl is installed
+            subprocess.run(['which', 'uhubctl'], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            
+            # If port_id has a format like "1-1.2", we can use it with uhubctl
+            if 'port_id' in port_info and '-' in port_info['port_id']:
+                # Extract hub and port information
+                parts = port_info['port_id'].split('-')
+                if len(parts) == 2:
+                    hub = parts[0]
+                    port = parts[1]
+                    
+                    # Use uhubctl to control just this specific port
+                    action = 'on' if turn_on else 'off'
+                    cmd = ['uhubctl', '-l', hub, '-p', port, '-a', action]
+                    subprocess.run(cmd, check=True)
+                    print(f"USB port {port_info['port_id']} power set to {'ON' if turn_on else 'OFF'} using uhubctl")
+                    return True
+            
+            # If we don't have specific port info, try a more general approach with uhubctl
+            action = 'on' if turn_on else 'off'
+            cmd = ['uhubctl', '-a', action]
+            subprocess.run(cmd, check=True)
+            print(f"All USB ports power set to {'ON' if turn_on else 'OFF'} using uhubctl")
             return True
             
-        # If authorized doesn't exist, try using the remove attribute
-        if not turn_on:  # We can only turn off with this method
-            remove_path = f"{hub_path}/remove"
-            if os.path.exists(remove_path):
-                with open(remove_path, 'w') as f:
-                    f.write('1')
-                print("USB device removed")
+        except (subprocess.SubprocessError, FileNotFoundError):
+            # uhubctl not installed or failed
+            pass
+            
+        # Method 3: Try using usbreset for the specific device
+        if turn_on and 'device_path' in port_info:
+            try:
+                # Try using usbreset tool if available
+                subprocess.run(['usbreset', port_info['device_path']], check=True)
+                print(f"Reset USB device at {port_info['device_path']}")
                 return True
+            except (subprocess.SubprocessError, FileNotFoundError):
+                # usbreset not installed or failed
+                pass
+        
+        # Method 4: For power off, try unbinding the driver
+        if not turn_on and 'device_name' in port_info:
+            try:
+                # Find the USB driver for this device
+                result = subprocess.run(['lsmod'], stdout=subprocess.PIPE, text=True)
+                modules = result.stdout.strip().split('\n')
                 
-        # If we're turning on and got here, we can't use this method directly
-        if turn_on:
-            # Try to rescan the USB bus
-            usb_devices_path = '/sys/bus/usb/devices'
-            for root, dirs, _ in os.walk(usb_devices_path):
-                for directory in dirs:
-                    if directory.startswith('usb'):
-                        scan_path = os.path.join(root, directory, 'scan')
-                        if os.path.exists(scan_path):
-                            with open(scan_path, 'w') as f:
-                                f.write('1')
-                            print("Rescanned USB bus")
+                # Look for common USB video drivers
+                video_drivers = ['uvcvideo', 'videodev', 'usb_video']
+                for driver in video_drivers:
+                    if any(driver in line for line in modules):
+                        # Try to unbind this device from the driver
+                        unbind_path = f"/sys/bus/usb/drivers/{driver}/unbind"
+                        if os.path.exists(unbind_path):
+                            with open(unbind_path, 'w') as f:
+                                f.write(port_info['port_id'])
+                            print(f"Unbound device {port_info['device_name']} from driver {driver}")
                             return True
-                            
-        return False
-    except Exception as e:
-        print(f"Error toggling USB power (Method 1): {e}")
-        return False
-
-
-def toggle_usb_power_method2(turn_on=True):
-    """Toggle power to USB devices using uhubctl or system commands (Method 2)"""
-    try:
-        if turn_on:
-            # Try to use uhubctl if available
+            except Exception as e:
+                print(f"Error unbinding driver: {e}")
+        
+        # Method 5: As a last resort, try the more general approach
+        # Warning: This might affect other USB devices
+        if not turn_on:
             try:
-                subprocess.run(['uhubctl', '-a', 'on'], check=True)
-                print("Turned ON USB power using uhubctl")
+                # Try to disable all USB devices (not recommended, but might work)
+                for i in range(1, 8):  # Try common USB bus numbers
+                    # Disable the USB bus
+                    cmd = f"echo '1-{i}' > /sys/bus/usb/drivers/usb/unbind"
+                    subprocess.run(['sudo', 'sh', '-c', cmd], check=False)
+                print("Attempted to disable USB devices (general approach)")
                 return True
-            except (subprocess.SubprocessError, FileNotFoundError):
-                # If uhubctl fails or is not installed, try system commands
-                subprocess.run(['sudo', 'sh', '-c', 'echo "1-1" > /sys/bus/usb/drivers/usb/bind'], check=False)
-                print("Attempted to bind USB device")
-                return True
+            except Exception as e:
+                print(f"Error disabling USB (general approach): {e}")
         else:
-            # Try to use uhubctl if available
             try:
-                subprocess.run(['uhubctl', '-a', 'off'], check=True)
-                print("Turned OFF USB power using uhubctl")
+                # Try to enable all USB devices
+                for i in range(1, 8):  # Try common USB bus numbers
+                    # Enable the USB bus
+                    cmd = f"echo '1-{i}' > /sys/bus/usb/drivers/usb/bind"
+                    subprocess.run(['sudo', 'sh', '-c', cmd], check=False)
+                print("Attempted to enable USB devices (general approach)")
                 return True
-            except (subprocess.SubprocessError, FileNotFoundError):
-                # If uhubctl fails or is not installed, try system commands
-                subprocess.run(['sudo', 'sh', '-c', 'echo "1-1" > /sys/bus/usb/drivers/usb/unbind'], check=False)
-                print("Attempted to unbind USB device")
-                return True
+            except Exception as e:
+                print(f"Error enabling USB (general approach): {e}")
+                
+        return False
     except Exception as e:
-        print(f"Error toggling USB power (Method 2): {e}")
-    return False
+        print(f"Error controlling USB port: {e}")
+        return False
 
 
-def toggle_usb_power(turn_on=True):
-    """Toggle power to the USB camera using available methods"""
-    # Try Method 1: Direct sysfs control
-    hub_path = find_usb_hub_path()
-    if hub_path and toggle_usb_power_method1(hub_path, turn_on):
-        return True
+def power_cycle_camera_usb(port_info, callback=None):
+    """Power cycle the camera USB port with a delay of 3 seconds"""
+    # Define the power cycle sequence
+    def power_cycle_sequence():
+        # Disable power
+        control_specific_usb_port(port_info, turn_on=False)
+        print("USB power OFF - waiting 3 seconds before turning back ON...")
         
-    # Try Method 2: System commands
-    if toggle_usb_power_method2(turn_on):
-        return True
+        # Wait 3 seconds
+        time.sleep(3)
         
-    # If all methods failed
-    print("Warning: Could not control USB power. USB power toggle functionality may not work.")
-    return False
+        # Enable power
+        control_specific_usb_port(port_info, turn_on=True)
+        print("USB power ON")
+        
+        # If a callback was provided, call it
+        if callback:
+            callback()
+    
+    # Start the power cycle in a separate thread to avoid blocking the UI
+    power_thread = threading.Thread(target=power_cycle_sequence)
+    power_thread.daemon = True  # Thread will exit when main program exits
+    power_thread.start()
+    
+    return True
 
 
 def main():
-    # Check for camera USB information
-    camera_info = get_camera_usb_info()
-    if camera_info:
-        print(f"Found camera: {camera_info['description']}")
+    # Find the camera's USB port
+    camera_port_info = find_specific_camera_usb_port()
+    if camera_port_info:
+        print(f"Found camera on USB port: {camera_port_info['port_id']}")
     else:
-        print("Warning: Could not identify camera USB device. Power toggle may not work.")
+        print("Warning: Could not identify specific camera USB port. Power cycling may affect all USB devices.")
     
     # Open the default camera (usually webcam)
     cap = cv2.VideoCapture(0)
@@ -300,60 +377,74 @@ def main():
     # Initial threshold value (0-255)
     threshold = 120
     
-    # Camera power state
-    camera_powered = True
+    # Power cycling state flag
+    power_cycling = False
 
     print("Controls:")
     print("  + : Increase threshold")
     print("  - : Decrease threshold")
     print("  r : Reset threshold to 120")
-    print("  p : Toggle USB power to camera")
+    print("  p : Power cycle camera (OFF for 3 seconds, then back ON)")
     print("  q : Quit the program")
 
-    # Create a window with a trackbar for the power button
+    # Create a window with a button for power cycling
     cv2.namedWindow('Controls')
-    # Create a button-like trackbar (it's a bit of a hack since OpenCV doesn't have buttons)
-    cv2.createTrackbar('Camera Power', 'Controls', 1, 1, lambda x: None)
+    
+    # Create a button-like trackbar for power cycling
+    # (When pressed, it will be reset to 0 automatically)
+    cv2.createTrackbar('Power Cycle Camera', 'Controls', 0, 1, lambda x: None)
+
+    # Function to reconnect the camera after power cycling
+    def reconnect_camera():
+        nonlocal cap, power_cycling
+        time.sleep(2)  # Wait a bit more for device to be ready
+        print("Attempting to reconnect camera...")
+        cap.release()
+        cap = cv2.VideoCapture(0)
+        power_cycling = False
+        print("Camera reconnection complete")
 
     while True:
-        # Check the state of the power "button"
-        power_state = cv2.getTrackbarPos('Camera Power', 'Controls')
+        # Check the state of the power cycle "button"
+        button_state = cv2.getTrackbarPos('Power Cycle Camera', 'Controls')
         
-        # Check if power state changed via trackbar
-        if (power_state == 0) != (not camera_powered):
-            camera_powered = (power_state == 1)
-            toggle_usb_power(camera_powered)
+        # If button is pressed (1) and we're not already power cycling
+        if button_state == 1 and not power_cycling:
+            # Reset the button to 0
+            cv2.setTrackbarPos('Power Cycle Camera', 'Controls', 0)
             
-            # Give time for the camera to reconnect if powered on
-            if camera_powered:
-                print("Waiting for camera to initialize...")
-                time.sleep(3)  # Longer wait time for Raspberry Pi
-                # Try to reopen the camera
-                cap.release()
-                cap = cv2.VideoCapture(0)
+            # Set the power cycling flag
+            power_cycling = True
+            
+            # Start the power cycle
+            print("Starting USB power cycle...")
+            power_cycle_camera_usb(camera_port_info, reconnect_camera)
         
         # Create a blank control panel to show the current status
         control_panel = np.ones((150, 400, 3), dtype=np.uint8) * 240  # Light gray background
         
         # Add status text
-        cv2.putText(control_panel, f"Camera Power: {'ON' if camera_powered else 'OFF'}", 
-                    (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255) if not camera_powered else (0, 128, 0), 2)
+        status_text = "POWER CYCLING..." if power_cycling else "READY"
+        status_color = (0, 0, 255) if power_cycling else (0, 128, 0)
+        
+        cv2.putText(control_panel, f"Status: {status_text}", 
+                    (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, status_color, 2)
         cv2.putText(control_panel, f"Threshold: {threshold}", 
                     (20, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
-        cv2.putText(control_panel, "Press 'p' to toggle power, 'q' to quit", 
+        cv2.putText(control_panel, "Press 'p' to power cycle, 'q' to quit", 
                     (20, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 1)
         
         # Show the control panel
         cv2.imshow('Controls', control_panel)
         
-        # Only try to capture a frame if the camera is powered on
-        if camera_powered and cap.isOpened():
+        # Only try to capture a frame if we're not power cycling
+        if not power_cycling and cap.isOpened():
             # Capture frame-by-frame
             ret, frame = cap.read()
 
             if not ret:
                 print("Error: Failed to capture image from camera.")
-                # If we can't get a frame, assume camera might be disconnected or powered off
+                # If we can't get a frame, assume camera might be disconnected
                 time.sleep(0.5)
                 continue
 
@@ -366,7 +457,7 @@ def main():
 
             # Draw a crosshair at the center of the frame
             cv2.drawMarker(display_frame, frame_center, (255, 0, 255), markerType=cv2.MARKER_CROSS,
-                        markerSize=20, thickness=2)
+                           markerSize=20, thickness=2)
 
             # Convert to grayscale
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -439,9 +530,10 @@ def main():
             cv2.imshow('Processed', display_frame)
             cv2.imshow('Mask', mask)
         else:
-            # Display a message when camera is off
+            # Display a message when camera is power cycling or unavailable
+            message = "POWER CYCLING..." if power_cycling else "CAMERA UNAVAILABLE"
             no_signal = np.zeros((480, 640, 3), dtype=np.uint8)
-            cv2.putText(no_signal, "CAMERA OFF", (220, 240), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+            cv2.putText(no_signal, message, (160, 240), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
             
             # Display the no signal frame
             cv2.imshow('Original', no_signal)
@@ -458,31 +550,17 @@ def main():
             threshold = max(threshold - 5, 0)
         elif key == ord('r'):
             threshold = 120
-        elif key == ord('p'):
-            # Toggle camera power
-            camera_powered = not camera_powered
-            # Update the trackbar to match the power state
-            cv2.setTrackbarPos('Camera Power', 'Controls', 1 if camera_powered else 0)
-            
-            toggle_usb_power(camera_powered)
-            # Give time for the camera to reconnect if powered on
-            if camera_powered:
-                print("Waiting for camera to initialize...")
-                time.sleep(3)  # Longer wait time for Raspberry Pi
-                # Try to reopen the camera
-                cap.release()
-                cap = cv2.VideoCapture(0)
+        elif key == ord('p') and not power_cycling:
+            # Start power cycling
+            power_cycling = True
+            print("Starting USB power cycle...")
+            power_cycle_camera_usb(camera_port_info, reconnect_camera)
         elif key == ord('q'):
             break
 
     # When everything is done, release the capture and close windows
     cap.release()
     cv2.destroyAllWindows()
-    
-    # Make sure the camera is powered on before exiting
-    if not camera_powered:
-        print("Turning camera back on before exit...")
-        toggle_usb_power(True)
 
 
 if __name__ == "__main__":
