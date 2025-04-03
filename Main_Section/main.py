@@ -1,5 +1,3 @@
-# main.py - Entry point that manages all processes and UI
-
 import time
 import os
 import cv2
@@ -234,7 +232,7 @@ def update_combined_frame(combined_frame, video_frame=None, best_detection=None,
     
     # Add video feed if available
     # Make sure video_frame is the right size
-    video_frame.shape[:2] != (400, 640):
+    if video_frame.shape[:2] != (400, 640):
         video_frame = cv2.resize(video_frame, (640, 400))
         # Copy video frame to video region
         video_region[:video_frame.shape[0], :video_frame.shape[1]] = video_frame
