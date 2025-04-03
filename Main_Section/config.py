@@ -59,7 +59,7 @@ MIN_Z = 105  # Default minimum Z value - will be updated based on distance
 SCREENSHOT_FOLDER = 'hover_screenshots'
 
 # Object tracking settings
-COOLDOWN_TIME = 10  # Seconds between auto-processing
+COOLDOWN_TIME = 25  # Seconds between auto-processing
 Z_HISTORY_MAX_SIZE = 50  # Maximum size of Z value history
 OBJECT_CLEANUP_TIME = 10  # Time in seconds after which objects are removed from tracking
 
