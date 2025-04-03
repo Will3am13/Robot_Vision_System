@@ -133,23 +133,57 @@ def run_oak_camera(detection_queue, command_queue, status_queue):
         # Initialize status
         status_queue.put({"status": "initializing"})
         
-        # Connect to device with error handling and retry
-        max_retries = 3
+        # Connect to device with improved error handling and retry
+        max_retries = 5  # Increased from 3 to 5
         retry_count = 0
         device = None
         
         while retry_count < max_retries:
             try:
                 logger.info(f"Connecting to Oak device (attempt {retry_count + 1}/{max_retries})")
+                
+                # Release any previously attempted device connection
+                if device is not None:
+                    try:
+                        device.close()
+                    except:
+                        pass
+                
+                # Force garbage collection before attempting connection
+                gc.collect()
+                
+                # Check for USB devices
+                logger.info("Checking for available devices...")
+                try:
+                    devices = dai.Device.getAllAvailableDevices()
+                    if len(devices) == 0:
+                        logger.warning("No DepthAI devices found! Waiting for device to become available...")
+                        status_queue.put({"status": "waiting_for_device"})
+                    else:
+                        logger.info(f"Found {len(devices)} DepthAI device(s)")
+                        for i, deviceInfo in enumerate(devices):
+                            logger.info(f"Device {i}: {deviceInfo.getMxId()} (state: {deviceInfo.state})")
+                except Exception as dev_e:
+                    logger.error(f"Error checking devices: {str(dev_e)}")
+                
+                # Try to create device
                 device = dai.Device(pipeline)
+                logger.info("Successfully connected to Oak device")
                 break
+                
             except Exception as e:
                 retry_count += 1
                 logger.error(f"Failed to connect to Oak device: {str(e)}")
+                status_queue.put({"status": "retrying", "attempt": retry_count, "max_attempts": max_retries})
+                
                 if retry_count >= max_retries:
-                    status_queue.put({"status": "error", "message": f"Failed to connect to Oak device: {str(e)}"})
+                    status_queue.put({"status": "error", "message": f"Failed to connect to Oak device after {max_retries} attempts: {str(e)}"})
                     return
-                time.sleep(2)  # Wait before retrying
+                
+                # Exponential backoff for retries (2^retry_count seconds)
+                wait_time = min(2 ** retry_count, 10)  # Cap at 10 seconds
+                logger.info(f"Waiting {wait_time}s before retry...")
+                time.sleep(wait_time)
         
         # Output queues with limited size to prevent memory leaks
         qVideo = device.getOutputQueue(name="video", maxSize=4, blocking=False)
