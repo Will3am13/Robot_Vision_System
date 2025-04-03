@@ -249,6 +249,13 @@ def toggle_usb_power_method2(turn_on=True):
                 # If uhubctl fails or is not installed, try system commands
                 subprocess.run(['sudo', 'sh', '-c', 'echo "1-1" > /sys/bus/usb/drivers/usb/bind'], check=False)
                 print("Attempted to bind USB device")
+                
+                # Force a rescan of USB devices
+                try:
+                    subprocess.run(['sudo', 'sh', '-c', 'echo "1" > /sys/bus/usb/drivers/usb/usb1/authorized'], check=False)
+                    print("Forced USB device reauthorization")
+                except:
+                    pass
                 return True
         else:
             # Try to use uhubctl if available
@@ -266,55 +273,128 @@ def toggle_usb_power_method2(turn_on=True):
     return False
 
 
-def toggle_usb_power_method3(turn_on=True):
-    """Toggle power to USB using GPIO pins (Method 3 - requires additional hardware)"""
-    try:
-        # This method assumes you have a USB port connected through a relay controlled by GPIO
-        # You would need to modify this to match your specific hardware setup
-        
-        # Example GPIO setup - modify for your specific configuration
-        import RPi.GPIO as GPIO
-        
-        # Define the GPIO pin connected to the relay
-        RELAY_PIN = 17  # Change this to your actual GPIO pin
-        
-        # Setup GPIO
-        GPIO.setmode(GPIO.BCM)
-        GPIO.setwarnings(False)
-        GPIO.setup(RELAY_PIN, GPIO.OUT)
-        
-        # Control relay
-        GPIO.output(RELAY_PIN, GPIO.HIGH if turn_on else GPIO.LOW)
-        
-        print(f"Toggled USB power {'ON' if turn_on else 'OFF'} using GPIO")
-        return True
-    except Exception as e:
-        print(f"Error toggling USB power (Method 3): {e}")
-        return False
-
-
 def toggle_usb_power(turn_on=True):
     """Toggle power to the USB camera using available methods"""
+    success = False
+    
     # Try Method 1: Direct sysfs control
     hub_path = find_usb_hub_path()
     if hub_path and toggle_usb_power_method1(hub_path, turn_on):
-        return True
-        
-    # Try Method 2: System commands
-    if toggle_usb_power_method2(turn_on):
-        return True
-        
-    # Try Method 3: GPIO control (requires additional hardware)
-    # Uncomment if you have the hardware setup
-    # if toggle_usb_power_method3(turn_on):
-    #    return True
-        
+        success = True
+    
+    # Try Method 2: System commands if Method 1 failed
+    if not success and toggle_usb_power_method2(turn_on):
+        success = True
+    
+    # If turning on, run additional steps to help with device detection
+    if turn_on and success:
+        # Force kernel to rescan USB devices
+        try:
+            # Try using usb-devices to trigger a rescan
+            subprocess.run(['usb-devices'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+        except:
+            pass
+            
+        # Try to reset USB subsystem
+        try:
+            subprocess.run(['sudo', 'rmmod', 'uvcvideo'], check=False, stderr=subprocess.PIPE)
+            time.sleep(0.5)
+            subprocess.run(['sudo', 'modprobe', 'uvcvideo'], check=False, stderr=subprocess.PIPE)
+            print("Reset UVC video driver")
+        except:
+            pass
+    
     # If all methods failed
-    print("Warning: Could not control USB power. USB power toggle functionality may not work.")
+    if not success:
+        print("Warning: Could not control USB power. USB power toggle functionality may not work.")
+    
+    return success
+
+
+def ensure_camera_works(max_attempts=5, delay=1.0):
+    """Try to make sure the camera is working by attempting to open it multiple times"""
+    print("Testing camera connection...")
+    
+    for attempt in range(max_attempts):
+        try:
+            # Try to open the camera
+            test_cap = cv2.VideoCapture(0)
+            
+            # Check if it opened successfully
+            if test_cap.isOpened():
+                # Try to read a frame to really confirm it's working
+                ret, _ = test_cap.read()
+                
+                # Close the test capture
+                test_cap.release()
+                
+                if ret:
+                    print(f"Camera is working! (Attempt {attempt+1}/{max_attempts})")
+                    return True
+                else:
+                    print(f"Camera opened but couldn't read frame (Attempt {attempt+1}/{max_attempts})")
+            else:
+                print(f"Failed to open camera (Attempt {attempt+1}/{max_attempts})")
+                
+            # Wait before trying again
+            time.sleep(delay)
+        except Exception as e:
+            print(f"Error testing camera: {e}")
+            time.sleep(delay)
+    
+    print(f"Camera still not working after {max_attempts} attempts")
     return False
 
 
-def auto_power_cycle_usb():
+def reset_camera_device(cam_device_num=0):
+    """Attempt to reset the camera using various methods"""
+    print("Attempting to reset camera...")
+    success = False
+    
+    # Method 1: Close and reopen the camera
+    try:
+        temp_cap = cv2.VideoCapture(cam_device_num)
+        temp_cap.release()
+        time.sleep(0.5)
+        print("Reset camera through close/reopen")
+        success = True
+    except:
+        pass
+    
+    # Method 2: Try to reset UVC driver if available
+    if not success:
+        try:
+            subprocess.run(['sudo', 'rmmod', 'uvcvideo'], check=False, stderr=subprocess.PIPE)
+            time.sleep(1)
+            subprocess.run(['sudo', 'modprobe', 'uvcvideo'], check=False, stderr=subprocess.PIPE)
+            print("Reset UVC video driver")
+            success = True
+        except:
+            pass
+    
+    # Method 3: Try to reset using v4l2-ctl if available
+    if not success:
+        try:
+            subprocess.run(['v4l2-ctl', '--set-ctrl=power_line_frequency=0'], check=False)
+            time.sleep(0.5)
+            print("Reset camera using v4l2-ctl")
+            success = True
+        except:
+            pass
+    
+    # Method 4: Try a more aggressive approach - USB power cycle
+    if not success:
+        print("Trying USB power cycle...")
+        toggle_usb_power(False)
+        time.sleep(1)  # Longer off time
+        toggle_usb_power(True)
+        time.sleep(2)  # Longer on time
+        success = True
+    
+    return success
+
+
+def auto_power_cycle_usb(power_cycle_callback=None):
     """Automatically power cycle the USB - turn it off, wait 3 seconds, turn it back on"""
     # Flag to track power cycle state
     is_cycling = True
@@ -330,11 +410,23 @@ def auto_power_cycle_usb():
         
         # Turn power back on
         toggle_usb_power(turn_on=True)
-        print("USB power turned back ON")
+        print("USB power turned back ON, waiting for device initialization...")
         
-        # Update the cycling flag
-        nonlocal is_cycling
-        is_cycling = False
+        # Wait for USB device to be fully recognized (longer wait)
+        time.sleep(2)
+        
+        # Force USB device reset to ensure it's properly recognized
+        reset_camera_device()
+        
+        # Wait a bit more
+        time.sleep(1)
+        
+        # Check if camera is working
+        camera_working = ensure_camera_works(max_attempts=3, delay=1.0)
+        
+        if power_cycle_callback:
+            # Call the callback with the status
+            power_cycle_callback(camera_working)
     
     # Start the power cycle in a background thread
     cycle_thread = threading.Thread(target=power_cycle_thread)
@@ -354,39 +446,136 @@ def main():
     
     # Open the default camera (usually webcam)
     cap = cv2.VideoCapture(0)
-
+    
     # Check if camera opened successfully
     if not cap.isOpened():
-        print("Error: Could not open webcam.")
-        return
+        print("Error: Could not open webcam. Attempting reset...")
+        # Try to reset the camera
+        reset_camera_device()
+        time.sleep(2)
+        # Try opening again
+        cap = cv2.VideoCapture(0)
+        
+        if not cap.isOpened():
+            print("Error: Still could not open webcam. Starting with no camera.")
 
     # Initial threshold value (0-255)
     threshold = 120
     
     # Flag to track if a power cycle is in progress
     power_cycling = False
+    
+    # Flag to track if camera is currently available
+    camera_available = cap.isOpened()
 
     print("Controls:")
     print("  + : Increase threshold")
     print("  - : Decrease threshold")
     print("  r : Reset threshold to 120")
-    print("  p : Toggle USB power (will auto-restore after 3 seconds)")
+    print("  p : Power cycle USB (will auto-restore after 3 seconds)")
+    print("  c : Try to reconnect camera without power cycle")
     print("  q : Quit the program")
 
     # Create a window with a trackbar for the power button
     cv2.namedWindow('Controls')
     # Create a button-like trackbar (it's a bit of a hack since OpenCV doesn't have buttons)
     cv2.createTrackbar('Power Cycle', 'Controls', 0, 1, lambda x: None)
+    cv2.createTrackbar('Try Reconnect', 'Controls', 0, 1, lambda x: None)
 
     # Track last power cycle time to prevent rapid cycling
     last_cycle_time = 0
     min_cycle_interval = 5  # Minimum time between cycles in seconds
+    
+    # Initialize status message
+    status_message = "READY" if camera_available else "NO CAMERA DETECTED"
+    
+    # Define callback for power cycle completion
+    def power_cycle_complete_callback(success):
+        nonlocal power_cycling, camera_available, cap, status_message
+        
+        # Update flags based on success
+        power_cycling = False
+        
+        if success:
+            print("Camera reconnected successfully after power cycle")
+            status_message = "CAMERA RECONNECTED"
+            
+            # Make sure to properly release the old capture
+            if cap.isOpened():
+                cap.release()
+            
+            # Open a fresh capture
+            cap = cv2.VideoCapture(0)
+            camera_available = cap.isOpened()
+            
+            if not camera_available:
+                status_message = "RECONNECT FAILED - TRY AGAIN"
+                print("Warning: Camera still not available after power cycle")
+        else:
+            print("Failed to reconnect camera after power cycle")
+            status_message = "RECONNECT FAILED - TRY AGAIN"
+            camera_available = False
+
+    # Function to attempt reconnection without power cycle
+    def try_reconnect_camera():
+        nonlocal cap, camera_available, status_message
+        
+        print("Attempting to reconnect camera without power cycle...")
+        status_message = "RECONNECTING..."
+        
+        # Release current capture if any
+        if cap.isOpened():
+            cap.release()
+        
+        # Try to reset the camera
+        reset_camera_device()
+        
+        # Wait a moment
+        time.sleep(1)
+        
+        # Try to open the camera again
+        cap = cv2.VideoCapture(0)
+        camera_available = cap.isOpened()
+        
+        if camera_available:
+            print("Camera reconnected successfully")
+            status_message = "CAMERA RECONNECTED"
+            return True
+        else:
+            print("Failed to reconnect camera")
+            status_message = "RECONNECT FAILED - TRY AGAIN"
+            return False
 
     while True:
         # Get current time for rate limiting
         current_time = time.time()
         
-        # Check the state of the power "button"
+        # Create a blank control panel to show the current status
+        control_panel = np.ones((150, 400, 3), dtype=np.uint8) * 240  # Light gray background
+        
+        # Add status text
+        status_color = (0, 0, 255)  # Default is red
+        if status_message == "READY" or status_message == "CAMERA RECONNECTED":
+            status_color = (0, 128, 0)  # Green
+        elif status_message == "POWER CYCLING..." or status_message == "RECONNECTING...":
+            status_color = (0, 165, 255)  # Orange
+            
+        cv2.putText(control_panel, f"Status: {status_message}", 
+                   (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, status_color, 2)
+        cv2.putText(control_panel, f"Threshold: {threshold}", 
+                   (20, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
+        
+        if power_cycling:
+            cv2.putText(control_panel, "USB power will auto-restore in 3 seconds", 
+                       (20, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+        else:
+            cv2.putText(control_panel, "Press 'p' to power cycle, 'c' to reconnect, 'q' to quit", 
+                       (20, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+        
+        # Show the control panel
+        cv2.imshow('Controls', control_panel)
+        
+        # Check the state of the power cycle "button"
         button_state = cv2.getTrackbarPos('Power Cycle', 'Controls')
         
         # If button is pressed (1) and not currently cycling and enough time has passed
@@ -397,60 +586,34 @@ def main():
             # Start the auto power cycle
             power_cycling = True
             last_cycle_time = current_time
+            status_message = "POWER CYCLING..."
             print("Starting USB power cycle...")
             
-            # Start the power cycle in the background
-            auto_power_cycle_usb()
+            # Start the power cycle in the background with the callback
+            auto_power_cycle_usb(power_cycle_complete_callback)
+        
+        # Check the state of the reconnect "button"
+        reconnect_button_state = cv2.getTrackbarPos('Try Reconnect', 'Controls')
+        
+        # If reconnect button is pressed and not power cycling
+        if reconnect_button_state == 1 and not power_cycling:
+            # Reset the button state to 0
+            cv2.setTrackbarPos('Try Reconnect', 'Controls', 0)
             
-            # Give a little time for the power off to take effect
-            time.sleep(0.5)
-            
-            # Set a timer to automatically reset the power_cycling flag and reopen the camera
-            def reset_after_cycle():
-                nonlocal power_cycling, cap
-                time.sleep(4)  # Wait a bit longer than the 3-second cycle to ensure USB is ready
-                power_cycling = False
-                
-                # Reopen the camera
-                cap.release()
-                cap = cv2.VideoCapture(0)
-                print("Camera reconnection attempted after power cycle")
-                
-            # Start the reset timer in a background thread
-            reset_thread = threading.Thread(target=reset_after_cycle)
-            reset_thread.daemon = True
-            reset_thread.start()
+            # Try to reconnect
+            try_reconnect_camera()
         
-        # Create a blank control panel to show the current status
-        control_panel = np.ones((150, 400, 3), dtype=np.uint8) * 240  # Light gray background
-        
-        # Add status text
-        status_text = "POWER CYCLING..." if power_cycling else "READY"
-        status_color = (0, 0, 255) if power_cycling else (0, 128, 0)
-        
-        cv2.putText(control_panel, f"Status: {status_text}", 
-                    (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, status_color, 2)
-        cv2.putText(control_panel, f"Threshold: {threshold}", 
-                    (20, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
-        
-        if power_cycling:
-            cv2.putText(control_panel, "USB power will auto-restore in 3 seconds", 
-                        (20, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
-        else:
-            cv2.putText(control_panel, "Press 'p' to power cycle, 'q' to quit", 
-                        (20, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 1)
-        
-        # Show the control panel
-        cv2.imshow('Controls', control_panel)
-        
-        # Only try to capture a frame if the camera is not power cycling
-        if not power_cycling and cap.isOpened():
+        # Only try to capture a frame if the camera is available and not power cycling
+        if camera_available and not power_cycling:
             # Capture frame-by-frame
             ret, frame = cap.read()
 
             if not ret:
                 print("Error: Failed to capture image from camera.")
-                # If we can't get a frame, assume camera might be disconnected or powered off
+                # If we can't get a frame, the camera might be disconnected
+                status_message = "CAMERA ERROR - TRY RECONNECTING"
+                camera_available = False
+                try_reconnect_camera()
                 time.sleep(0.5)
                 continue
 
@@ -536,10 +699,19 @@ def main():
             cv2.imshow('Processed', display_frame)
             cv2.imshow('Mask', mask)
         else:
-            # Display a message when camera is off
+            # Display a message when camera is unavailable
             no_signal = np.zeros((480, 640, 3), dtype=np.uint8)
-            cv2.putText(no_signal, "POWER CYCLING...", (180, 240), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-            cv2.putText(no_signal, "USB power will auto-restore in 3 seconds", (90, 280), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 1)
+            
+            message = "POWER CYCLING..." if power_cycling else "CAMERA UNAVAILABLE"
+            cv2.putText(no_signal, message, (180, 240), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+            
+            # Add instructions
+            if power_cycling:
+                cv2.putText(no_signal, "USB power will auto-restore in 3 seconds", 
+                           (90, 280), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 1)
+            else:
+                cv2.putText(no_signal, "Press 'p' to power cycle or 'c' to try reconnect", 
+                           (90, 280), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 1)
             
             # Display the no signal frame
             cv2.imshow('Original', no_signal)
@@ -560,31 +732,20 @@ def main():
             # Start power cycle
             power_cycling = True
             last_cycle_time = current_time
+            status_message = "POWER CYCLING..."
             print("Starting USB power cycle...")
             
-            # Start the power cycle in the background
-            auto_power_cycle_usb()
-            
-            # Set a timer to automatically reset the power_cycling flag and reopen the camera
-            def reset_after_cycle():
-                nonlocal power_cycling, cap
-                time.sleep(4)  # Wait a bit longer than the 3-second cycle to ensure USB is ready
-                power_cycling = False
-                
-                # Reopen the camera
-                cap.release()
-                cap = cv2.VideoCapture(0)
-                print("Camera reconnection attempted after power cycle")
-                
-            # Start the reset timer in a background thread
-            reset_thread = threading.Thread(target=reset_after_cycle)
-            reset_thread.daemon = True
-            reset_thread.start()
+            # Start the power cycle in the background with the callback
+            auto_power_cycle_usb(power_cycle_complete_callback)
+        elif key == ord('c') and not power_cycling:
+            # Try to reconnect camera without power cycling
+            try_reconnect_camera()
         elif key == ord('q'):
             break
 
     # When everything is done, release the capture and close windows
-    cap.release()
+    if cap.isOpened():
+        cap.release()
     cv2.destroyAllWindows()
 
 
