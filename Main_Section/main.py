@@ -231,19 +231,11 @@ def update_combined_frame(combined_frame, video_frame=None, best_detection=None,
                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
 
     # Add video feed if available
- 
     if video_frame is not None:
         # Make sure video_frame is the right size
         if video_frame.shape[:2] != (400, 640):
             video_frame = cv2.resize(video_frame, (640, 400))
- 
-        # Copy video frame to video region 
-        video_region[:video_frame.shape[0], :video_frame.shape[1]] = video_frame
-
-    else:
-        if video_frame.shape[:2] != (400, 640):
-            video_frame = cv2.resize(video_frame, (640, 400))
- 
+    
         # Copy video frame to video region 
         video_region[:video_frame.shape[0], :video_frame.shape[1]] = video_frame
     
