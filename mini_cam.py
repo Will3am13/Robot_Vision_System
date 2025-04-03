@@ -429,5 +429,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-simplify this code please, For the reset USB only keep the one that resets the entire USB power. after the power cycle, repeat the power cycle, and then start the code from the top. 
