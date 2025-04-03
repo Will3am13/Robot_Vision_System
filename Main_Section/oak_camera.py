@@ -118,6 +118,7 @@ def reset_usb_device(device_id=None):
     """
     Reset USB device by cutting power to the specific USB port used by the OAK camera
     on a Raspberry Pi, then turning it back on after 3 seconds.
+    Performs the power cycle twice for more reliable reset.
     
     Args:
         device_id (str): Optional device ID to match
@@ -194,107 +195,130 @@ def reset_usb_device(device_id=None):
                 port = port_match.group(1)
                 logger.info(f"Found USB port: {port}")
                 
-                # Step 3: Cut power to the USB port
-                # Find the control file for the port
-                hub_path = f"/sys/bus/usb/devices/{port.split('.')[0]}/port{port.split('.')[-1]}"
-                power_control = f"{hub_path}/power/control"
-                
-                # First check if the power control file exists
-                check_cmd = f"ls {power_control}"
-                try:
-                    subprocess.check_output(check_cmd, shell=True, stderr=subprocess.PIPE)
-                except subprocess.CalledProcessError:
-                    # If the direct method fails, we'll try the alternative method
-                    hub_path = f"/sys/bus/usb/devices/{port}"
+                # Function to perform a single power cycle
+                def perform_power_cycle():
+                    # Step 3: Cut power to the USB port
+                    # Find the control file for the port
+                    hub_path = f"/sys/bus/usb/devices/{port.split('.')[0]}/port{port.split('.')[-1]}"
                     power_control = f"{hub_path}/power/control"
-                
-                # Step 3: Disable and re-enable the device by controlling power
-                logger.info(f"Cutting power to USB port {port}...")
-                
-                # First method: Try using power/control if available
-                try:
-                    # Set power mode to auto (will allow power to be cut)
-                    subprocess.run(f"echo auto > {power_control}", shell=True, check=True)
                     
-                    # Remove power by removing the device
-                    subprocess.run(f"echo 0 > {hub_path}/remove", shell=True, check=True)
-                    logger.info("Power cut successfully")
-                    
-                    # Wait 3 seconds
-                    time.sleep(3)
-                    
-                    # Scan for devices to restore power
-                    logger.info("Restoring power...")
-                    parent_hub = '/'.join(hub_path.split('/')[:-1])
-                    subprocess.run(f"echo 1 > {parent_hub}/scan", shell=True, check=True)
-                    logger.info("Power restored successfully")
-                    
-                    # Wait for device to initialize
-                    time.sleep(2)
-                    return True
-                    
-                except Exception as e:
-                    logger.error(f"Error using power control: {str(e)}")
-                    
-                    # Step 4: Alternative method using uhubctl if available
+                    # First check if the power control file exists
+                    check_cmd = f"ls {power_control}"
                     try:
-                        logger.info("Trying alternative method with uhubctl...")
+                        subprocess.check_output(check_cmd, shell=True, stderr=subprocess.PIPE)
+                    except subprocess.CalledProcessError:
+                        # If the direct method fails, we'll try the alternative method
+                        hub_path = f"/sys/bus/usb/devices/{port}"
+                        power_control = f"{hub_path}/power/control"
+                    
+                    # Step 3: Disable and re-enable the device by controlling power
+                    logger.info(f"Cutting power to USB port {port}...")
+                    
+                    # First method: Try using power/control if available
+                    try:
+                        # Set power mode to auto (will allow power to be cut)
+                        subprocess.run(f"echo auto > {power_control}", shell=True, check=True)
                         
-                        # Check if uhubctl is installed
-                        subprocess.check_output(["which", "uhubctl"])
+                        # Remove power by removing the device
+                        subprocess.run(f"echo 0 > {hub_path}/remove", shell=True, check=True)
+                        logger.info("Power cut successfully")
                         
-                        # Extract port number for uhubctl format
-                        port_nums = port.split('.')
-                        root_port = port_nums[0]
-                        hub_port = port_nums[-1] if len(port_nums) > 1 else None
+                        # Wait 3 seconds
+                        time.sleep(3)
                         
-                        if hub_port:
-                            # Turn off power
-                            cmd = f"uhubctl -l {root_port} -p {hub_port} -a 0"
-                            subprocess.run(cmd, shell=True, check=True)
-                            logger.info(f"Power cut successfully using uhubctl")
-                            
-                            # Wait 3 seconds
-                            time.sleep(3)
-                            
-                            # Turn power back on
-                            cmd = f"uhubctl -l {root_port} -p {hub_port} -a 1"
-                            subprocess.run(cmd, shell=True, check=True)
-                            logger.info(f"Power restored successfully using uhubctl")
-                            
-                            # Wait for device to initialize
-                            time.sleep(2)
-                            return True
+                        # Scan for devices to restore power
+                        logger.info("Restoring power...")
+                        parent_hub = '/'.join(hub_path.split('/')[:-1])
+                        subprocess.run(f"echo 1 > {parent_hub}/scan", shell=True, check=True)
+                        logger.info("Power restored successfully")
+                        
+                        # Wait for device to initialize
+                        time.sleep(2)
+                        return True
+                        
                     except Exception as e:
-                        logger.error(f"Error using uhubctl method: {str(e)}")
+                        logger.error(f"Error using power control: {str(e)}")
                         
-                        # Step 5: Fallback to the bind/unbind method if other methods fail
+                        # Step 4: Alternative method using uhubctl if available
                         try:
-                            logger.info("Falling back to bind/unbind method...")
+                            logger.info("Trying alternative method with uhubctl...")
                             
-                            # Get the driver
-                            cmd = f"basename $(readlink -f /sys/bus/usb/devices/{port}/driver)"
-                            driver = subprocess.check_output(cmd, shell=True).decode().strip()
+                            # Check if uhubctl is installed
+                            subprocess.check_output(["which", "uhubctl"])
                             
-                            # Unbind
-                            unbind_cmd = f"echo '{port}' > /sys/bus/usb/drivers/{driver}/unbind"
-                            subprocess.run(unbind_cmd, shell=True, check=True)
-                            logger.info("Device unbound successfully")
+                            # Extract port number for uhubctl format
+                            port_nums = port.split('.')
+                            root_port = port_nums[0]
+                            hub_port = port_nums[-1] if len(port_nums) > 1 else None
                             
-                            # Wait 3 seconds
-                            time.sleep(3)
-                            
-                            # Bind again
-                            bind_cmd = f"echo '{port}' > /sys/bus/usb/drivers/{driver}/bind"
-                            subprocess.run(bind_cmd, shell=True, check=True)
-                            logger.info("Device bound successfully")
-                            
-                            # Wait for device to initialize
-                            time.sleep(2)
-                            return True
-                            
+                            if hub_port:
+                                # Turn off power
+                                cmd = f"uhubctl -l {root_port} -p {hub_port} -a 0"
+                                subprocess.run(cmd, shell=True, check=True)
+                                logger.info(f"Power cut successfully using uhubctl")
+                                
+                                # Wait 3 seconds
+                                time.sleep(3)
+                                
+                                # Turn power back on
+                                cmd = f"uhubctl -l {root_port} -p {hub_port} -a 1"
+                                subprocess.run(cmd, shell=True, check=True)
+                                logger.info(f"Power restored successfully using uhubctl")
+                                
+                                # Wait for device to initialize
+                                time.sleep(2)
+                                return True
                         except Exception as e:
-                            logger.error(f"Error using bind/unbind method: {str(e)}")
+                            logger.error(f"Error using uhubctl method: {str(e)}")
+                            
+                            # Step 5: Fallback to the bind/unbind method if other methods fail
+                            try:
+                                logger.info("Falling back to bind/unbind method...")
+                                
+                                # Get the driver
+                                cmd = f"basename $(readlink -f /sys/bus/usb/devices/{port}/driver)"
+                                driver = subprocess.check_output(cmd, shell=True).decode().strip()
+                                
+                                # Unbind
+                                unbind_cmd = f"echo '{port}' > /sys/bus/usb/drivers/{driver}/unbind"
+                                subprocess.run(unbind_cmd, shell=True, check=True)
+                                logger.info("Device unbound successfully")
+                                
+                                # Wait 3 seconds
+                                time.sleep(3)
+                                
+                                # Bind again
+                                bind_cmd = f"echo '{port}' > /sys/bus/usb/drivers/{driver}/bind"
+                                subprocess.run(bind_cmd, shell=True, check=True)
+                                logger.info("Device bound successfully")
+                                
+                                # Wait for device to initialize
+                                time.sleep(2)
+                                return True
+                                
+                            except Exception as e:
+                                logger.error(f"Error using bind/unbind method: {str(e)}")
+                    
+                    return False
+
+                # Perform first power cycle
+                logger.info("Performing first power cycle...")
+                if not perform_power_cycle():
+                    logger.error("First power cycle failed")
+                    return False
+                
+                # Wait a bit longer between cycles
+                logger.info("Waiting between power cycles...")
+                time.sleep(2)
+                
+                # Perform second power cycle
+                logger.info("Performing second power cycle...")
+                if not perform_power_cycle():
+                    logger.error("Second power cycle failed")
+                    return False
+                
+                logger.info("Double power cycle completed successfully")
+                return True
             
             except Exception as e:
                 logger.error(f"Error finding USB port: {str(e)}")
@@ -308,6 +332,7 @@ def reset_usb_device(device_id=None):
     except Exception as e:
         logger.error(f"Error in reset_usb_device: {str(e)}")
         return False
+
 
 def recover_from_error(device, error_message, last_recovery_time, status_queue):
     """
@@ -344,8 +369,8 @@ def recover_from_error(device, error_message, last_recovery_time, status_queue):
         except Exception as e:
             logger.error(f"Error closing device: {str(e)}")
     
-    # Reset device through USB   
-    logger.info("Attempting USB device reset")
+    # Reset device through USB with double power cycle
+    logger.info("Attempting USB device reset with double power cycle")
     usb_reset_success = reset_usb_device()
     
     if not usb_reset_success:
@@ -354,8 +379,8 @@ def recover_from_error(device, error_message, last_recovery_time, status_queue):
     # Force garbage collection
     gc.collect()
     
-    # Wait for device to stabilize
-    time.sleep(3)
+    # Wait for device to stabilize (longer wait after double power cycle)
+    time.sleep(5)
     
     # Create a new pipeline
     try:
@@ -366,16 +391,35 @@ def recover_from_error(device, error_message, last_recovery_time, status_queue):
         if not available_devices:
             logger.error("No DepthAI devices found after recovery attempt")
             return False, None, current_time
+        
+        logger.info(f"Found {len(available_devices)} device(s) after recovery")
+        for i, deviceInfo in enumerate(available_devices):
+            logger.info(f"Device {i}: {deviceInfo.getMxId()} (state: {deviceInfo.state})")
             
         # Try to create a new device
         logger.info("Creating new device instance")
-        new_device = dai.Device(pipeline)
-        logger.info("Successfully created new device instance")
         
-        # Update status
-        status_queue.put({"status": "recovered", "message": "Successfully recovered from error"})
+        # Multiple attempts to create device
+        max_attempts = 3
+        for attempt in range(max_attempts):
+            try:
+                logger.info(f"Device creation attempt {attempt+1}/{max_attempts}")
+                new_device = dai.Device(pipeline)
+                logger.info("Successfully created new device instance")
+                
+                # Update status
+                status_queue.put({"status": "recovered", "message": "Successfully recovered from error"})
+                
+                return True, new_device, current_time
+            except Exception as e:
+                logger.error(f"Device creation attempt {attempt+1} failed: {str(e)}")
+                if attempt < max_attempts - 1:
+                    logger.info("Waiting before next attempt...")
+                    time.sleep(2)
         
-        return True, new_device, current_time
+        logger.error(f"Failed to create device after {max_attempts} attempts")
+        status_queue.put({"status": "error", "message": f"Recovery failed: could not create device after {max_attempts} attempts"})
+        return False, None, current_time
         
     except Exception as e:
         logger.error(f"Failed to recover: {str(e)}")
@@ -415,7 +459,7 @@ def run_oak_camera(detection_queue, command_queue, status_queue, frame_queue):
         status_queue.put({"status": "initializing"})
         
         # Connect to device with improved error handling and retry
-        max_retries = 5  # Increased from 3 to 5
+        max_retries = 5
         retry_count = 0
         device = None
         
@@ -531,15 +575,27 @@ def run_oak_camera(detection_queue, command_queue, status_queue, frame_queue):
                         
                         if success and device is not None:
                             # Recreate queues for the new device
-                            qVideo = device.getOutputQueue(name="video", maxSize=4, blocking=False)
-                            qDet = device.getOutputQueue(name="detections", maxSize=4, blocking=False)
-                            logger.info("Manual recovery successful")
-                            # Reset error counters
-                            consecutive_errors = 0
+                            try:
+                                logger.info("Creating new output queues for recovered device")
+                                qVideo = device.getOutputQueue(name="video", maxSize=4, blocking=False)
+                                qDet = device.getOutputQueue(name="detections", maxSize=4, blocking=False)
+                                logger.info("Manual recovery successful")
+                                # Reset error counters
+                                consecutive_errors = 0
+                                status_queue.put({"status": "running", "message": "Camera reconnected after double power cycle"})
+                            except Exception as queue_error:
+                                logger.error(f"Error creating queues for new device: {str(queue_error)}")
+                                status_queue.put({"status": "error", "message": f"Queue creation failed: {str(queue_error)}"})
                         else:
                             logger.error("Manual recovery failed")
                             running = False
                             break
+                    elif cmd.get("command") == "status":
+                        # Report current status
+                        status = "running"
+                        if paused:
+                            status = "paused"
+                        status_queue.put({"status": status})
                 
                 # If paused, send the frozen frame but don't process new frames
                 if paused:
@@ -597,10 +653,18 @@ def run_oak_camera(detection_queue, command_queue, status_queue, frame_queue):
                         if success and new_device is not None:
                             # Update device and queues
                             device = new_device
-                            qVideo = device.getOutputQueue(name="video", maxSize=4, blocking=False)
-                            qDet = device.getOutputQueue(name="detections", maxSize=4, blocking=False)
-                            # Reset error counter
-                            consecutive_errors = 0
+                            # Recreate queues for the new device
+                            try:
+                                logger.info("Creating new output queues for recovered device")
+                                qVideo = device.getOutputQueue(name="video", maxSize=4, blocking=False)
+                                qDet = device.getOutputQueue(name="detections", maxSize=4, blocking=False)
+                                # Reset error counter
+                                consecutive_errors = 0
+                                logger.info("Device recovery complete - successfully reconnected")
+                                status_queue.put({"status": "running", "message": "Camera reconnected after double power cycle"})
+                            except Exception as queue_error:
+                                logger.error(f"Error creating queues for new device: {str(queue_error)}")
+                                status_queue.put({"status": "error", "message": f"Queue creation failed: {str(queue_error)}"})
                         else:
                             logger.error("Recovery failed, will retry later")
                             
