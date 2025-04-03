@@ -8,7 +8,9 @@ import logging
 import queue
 import gc
 import numpy as np
+import threading
 from typing import Dict, List, Tuple, Any, Optional
+from collections import deque
 
 # Import from other modules
 from config import (
@@ -28,6 +30,9 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger("Main")
+
+# Create a lock for frame synchronization
+frame_lock = threading.Lock()
 
 
 def init_system():
@@ -228,27 +233,28 @@ def update_combined_frame(combined_frame, video_frame=None, best_detection=None,
     cv2.putText(combined_frame, "Battery Sorting System", (50, 30), 
                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
 
-    # Add video feed if available
-    # Keep track of the last valid frame (this variable should be defined outside this function, e.g. as a global or class variable)
-    # If this is the first run, last_video_frame might not be defined yet
-    if 'last_video_frame' not in globals():
-        last_video_frame = None
-
+    # Add video feed if available - IMPROVED FRAME HANDLING
+    # Use global variable to persist the last valid frame between function calls
+    global last_valid_frame
+    
+    if 'last_valid_frame' not in globals():
+        last_valid_frame = None
+    
     if video_frame is not None:
         # Make sure video_frame is the right size
         if video_frame.shape[:2] != (400, 640):
             video_frame = cv2.resize(video_frame, (640, 400))
-    
-        # Copy video frame to video region 
+        
+        # Store a deep copy of the frame to prevent reference issues
+        last_valid_frame = video_frame.copy()
+        
+        # Copy video frame to video region
         video_region[:video_frame.shape[0], :video_frame.shape[1]] = video_frame
-    
-        # Update the last valid frame
-        last_video_frame = video_frame.copy()
-    elif last_video_frame is not None:
+    elif last_valid_frame is not None:
         # Use the last valid frame if no new frame is available
-        video_region[:last_video_frame.shape[0], :last_video_frame.shape[1]] = last_video_frame
-    # If no frame is available and we don't have a last frame yet, the video region remains unchanged
-     # Draw border around video region
+        video_region[:last_valid_frame.shape[0], :last_valid_frame.shape[1]] = last_valid_frame
+     
+    # Draw border around video region
     cv2.rectangle(combined_frame, (49, 49), (691, 451), (100, 100, 100), 1)
     
     # Add mode and status information to status region
@@ -390,6 +396,9 @@ def main():
     # Initialize a combined frame
     combined_frame = np.zeros((800, 1000, 3), dtype=np.uint8)
     
+    # Use a dedicated variable for the current frame
+    current_video_frame = None
+    
     # Tracking variables
     last_processed_time = 0
     auto_mode = False
@@ -397,6 +406,12 @@ def main():
     robot_status = "ready"
     oak_status = "running"
     last_error_time = 0
+    frame_update_count = 0
+    
+    # Target 30 FPS for display
+    target_fps = 30
+    frame_interval = 1.0 / target_fps
+    last_frame_update = time.time()
     
     # Signal handler for graceful shutdown
     def signal_handler(sig, frame):
@@ -478,19 +493,41 @@ def main():
             except Exception as e:
                 logger.error(f"Error getting detection: {str(e)}")
             
-            # Get video frame if available
-            video_frame = None
-            try:
-                if not frame_queue.empty():
-                    video_frame = frame_queue.get_nowait()
-            except Exception as e:
-                logger.warning(f"Error getting video frame: {str(e)}")
-            
-            # Update combined frame
-            combined_frame = update_combined_frame(
-                combined_frame, video_frame, best_detection, auto_mode, robot_status, oak_status
-            )
-            cv2.imshow("Battery Sorting System", combined_frame)
+            # Get video frame if available - WITH SYNCHRONIZATION
+            current_time = time.time()
+            if (current_time - last_frame_update) >= frame_interval:
+                with frame_lock:
+                    try:
+                        # Empty the queue to get the most recent frame
+                        frames_retrieved = 0
+                        while not frame_queue.empty() and frames_retrieved < 3:
+                            try:
+                                new_frame = frame_queue.get_nowait()
+                                if new_frame is not None:
+                                    current_video_frame = new_frame.copy()  # Make a copy to avoid reference issues
+                                    frames_retrieved += 1
+                            except Exception as e:
+                                logger.warning(f"Error getting video frame: {str(e)}")
+                                break
+                    except Exception as e:
+                        logger.warning(f"Error with frame queue: {str(e)}")
+                
+                # Update combined frame
+                combined_frame = update_combined_frame(
+                    combined_frame, current_video_frame, best_detection, auto_mode, robot_status, oak_status
+                )
+                cv2.imshow("Battery Sorting System", combined_frame)
+                
+                # Update timing
+                last_frame_update = current_time
+                frame_update_count += 1
+                
+                # Log frame rate periodically
+                if frame_update_count % 100 == 0:
+                    logger.info(f"Updated {frame_update_count} frames")
+            else:
+                # If we're not updating the frame, just give a very small sleep to reduce CPU
+                time.sleep(0.001)
             
             # Handle key presses
             key = cv2.waitKey(1)
@@ -565,6 +602,10 @@ def cleanup_multiprocessing():
         # Clear process resources
         multiprocessing.resource_tracker._resource_tracker.clear()
         logger.info("Cleared multiprocessing resources")
+
+        # Explicitly cleanup any left-over shared memory
+        # This is particularly important for image data which can be large
+        gc.collect()
         
         # For Python 3.8+ specific issue with leaked semaphores
         try:
