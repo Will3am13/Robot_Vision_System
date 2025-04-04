@@ -10,6 +10,8 @@ import os
 import sys
 import subprocess
 import re
+import threading
+from collections import deque
 from typing import Dict, List, Tuple, Any, Optional
 
 # Import settings from config
@@ -24,6 +26,24 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger("OakCamera")
+
+# Create a class to handle frame buffering
+class FrameBuffer:
+    def __init__(self, max_size=3):
+        self.buffer = deque(maxlen=max_size)
+        self.lock = threading.Lock()
+    
+    def add_frame(self, frame):
+        with self.lock:
+            if frame is not None:
+                # Make a copy of the frame to avoid reference issues
+                self.buffer.append(frame.copy())
+    
+    def get_latest_frame(self):
+        with self.lock:
+            if not self.buffer:
+                return None
+            return self.buffer[-1].copy()  # Return a copy of the latest frame
 
 
 def setup_vision_pipeline():
@@ -451,6 +471,16 @@ def run_oak_camera(detection_queue, command_queue, status_queue, frame_queue):
     max_consecutive_errors = 5
     consecutive_errors = 0
     
+    # Create a frame buffer
+    frame_buffer = FrameBuffer(max_size=5)
+    
+    # Add frame processing control variables
+    target_fps = 30
+    min_frame_interval = 1.0 / target_fps
+    last_frame_time = 0
+    last_sent_frame_time = 0
+    frame_send_interval = 1.0 / 25  # Send frames at 25 FPS max to reduce queue traffic
+    
     try:
         # Set up the pipeline
         pipeline = setup_vision_pipeline()
@@ -539,15 +569,20 @@ def run_oak_camera(detection_queue, command_queue, status_queue, frame_queue):
                             # Save current frame as frozen frame
                             if frozen_frame is None:
                                 try:
-                                    # Get current frame
-                                    current_frame = qVideo.get().getCvFrame()
-                                    # Create a copy to avoid reference issues
-                                    frozen_frame = current_frame.copy()
-                                    # Add paused indicator
-                                    cv2.putText(frozen_frame, "CAMERA PAUSED", (50, 50), 
-                                                cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 2)
-                                    # Resize for display
-                                    frozen_frame = cv2.resize(frozen_frame, (640, 400))
+                                    # Get latest frame from buffer
+                                    frozen_frame = frame_buffer.get_latest_frame()
+                                    if frozen_frame is None and qVideo.has():
+                                        # If buffer is empty, get a fresh frame
+                                        current_frame = qVideo.get().getCvFrame()
+                                        frozen_frame = cv2.resize(current_frame, (640, 400))
+                                    
+                                    # Add paused indicator if we have a frame
+                                    if frozen_frame is not None:
+                                        # Create a copy to avoid reference issues
+                                        frozen_frame = frozen_frame.copy()
+                                        # Add paused indicator
+                                        cv2.putText(frozen_frame, "CAMERA PAUSED", (50, 50), 
+                                                    cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 2)
                                 except Exception as e:
                                     logger.error(f"Error capturing frozen frame: {str(e)}")
                             
@@ -597,12 +632,17 @@ def run_oak_camera(detection_queue, command_queue, status_queue, frame_queue):
                             status = "paused"
                         status_queue.put({"status": status})
                 
+                # Get current time once per loop
+                current_time = time.time()
+                
                 # If paused, send the frozen frame but don't process new frames
                 if paused:
                     try:
-                        # Send the frozen frame to main process
-                        if frozen_frame is not None and frame_queue.qsize() < 2:
-                            frame_queue.put(frozen_frame, block=False)
+                        # Send the frozen frame to main process only if it changed or periodically
+                        if frozen_frame is not None and (current_time - last_sent_frame_time) >= 0.5:
+                            if frame_queue.qsize() < frame_queue._maxsize - 1:
+                                frame_queue.put(frozen_frame, block=False)
+                                last_sent_frame_time = current_time
                     except Exception as e:
                         logger.warning(f"Error sending frozen frame: {str(e)}")
                         
@@ -612,19 +652,137 @@ def run_oak_camera(detection_queue, command_queue, status_queue, frame_queue):
                     while qDet.has():
                         qDet.get()
                         
-                    # Sleep to reduce CPU usage while paused
+                    # Sleep longer while paused to reduce CPU usage
                     time.sleep(0.1)
                     continue
                 
-                # Process frames with error handling
+                # Process frames with rate limiting and error handling
                 try:
-                    # Get frames and detections
-                    inVideo = qVideo.get()
-                    frame = inVideo.getCvFrame()
+                    # Always get detections for tracking when available
+                    detections = []
+                    if qDet.has():
+                        inDet = qDet.get()
+                        detections = inDet.detections
+                        
+                        # Process each detection
+                        # Track best detection
+                        best_detection = None
+                        best_confidence = 0
+                        
+                        for detection in detections:
+                            # Determine class name
+                            class_name = "Battery" if detection.label == 0 else "CBattery"
+                            
+                            # Skip if below class-specific threshold
+                            if class_name not in CLASS_SETTINGS or detection.confidence < CLASS_SETTINGS[class_name]["threshold"]:
+                                continue
+                            
+                            # Get spatial coordinates (in millimeters)
+                            x = detection.spatialCoordinates.x
+                            y = detection.spatialCoordinates.y
+                            z = detection.spatialCoordinates.z
+                            
+                            # Create a unique object identifier based on its approximate position in 3D space
+                            # Round position to nearest 10mm to account for small movements
+                            object_id = f"{round(x / 10) * 10}_{round(y / 10) * 10}"
+                            
+                            # Initialize object data if this is a new object
+                            if object_id not in class_objects[class_name]:
+                                class_objects[class_name][object_id] = {
+                                    "z_history": [],
+                                    "last_seen": time.time()
+                                }
+                            
+                            # Update last seen time
+                            class_objects[class_name][object_id]["last_seen"] = time.time()
+                            
+                            # Update Z history for this specific object (keep only last Z_HISTORY_MAX_SIZE values)
+                            class_objects[class_name][object_id]["z_history"].append(z)
+                            if len(class_objects[class_name][object_id]["z_history"]) > Z_HISTORY_MAX_SIZE:
+                                class_objects[class_name][object_id]["z_history"].pop(0)
+                            
+                            # Calculate average Z for this specific object
+                            avg_z = get_avg_z(class_objects[class_name][object_id])
+                            
+                            # Track best detection for picking
+                            if detection.confidence > best_confidence:
+                                best_confidence = detection.confidence
+                                best_detection = {
+                                    "coordinates": [x, y, avg_z if avg_z is not None else z],  # Use averaged Z if available
+                                    "class_name": class_name,
+                                    "confidence": detection.confidence,
+                                    "object_id": object_id,
+                                    "raw_coordinates": [x, y, z],  # Also store raw coordinates
+                                    "frame": frame_count
+                                }
+                        
+                        # Clean up old objects (not seen for more than OBJECT_CLEANUP_TIME seconds)
+                        current_time = time.time()
+                        for class_name in class_objects:
+                            # Create a copy of the keys to avoid modifying during iteration
+                            object_ids = list(class_objects[class_name].keys())
+                            for object_id in object_ids:
+                                if current_time - class_objects[class_name][object_id]["last_seen"] > OBJECT_CLEANUP_TIME:
+                                    del class_objects[class_name][object_id]
+                        
+                        # Send best detection to main process
+                        if best_detection:
+                            detection_queue.put(best_detection)
                     
-                    # Only process detections if not paused
-                    inDet = qDet.get()
-                    detections = inDet.detections
+                    # Get video frames at the target processing rate
+                    should_process_frame = (current_time - last_frame_time) >= min_frame_interval
+                    
+                    if should_process_frame and qVideo.has():
+                        inVideo = qVideo.get()
+                        frame = inVideo.getCvFrame()
+                        last_frame_time = current_time
+                        frame_count += 1
+                        
+                        # Process the frame
+                        # Create a smaller version for display
+                        display_frame = cv2.resize(frame, (640, 400))
+                        
+                        # Add detection visualization to the display frame
+                        if len(detections) > 0:
+                            for detection in detections:
+                                class_name = "Battery" if detection.label == 0 else "CBattery"
+                                
+                                # Skip if below threshold
+                                if class_name not in CLASS_SETTINGS or detection.confidence < CLASS_SETTINGS[class_name]["threshold"]:
+                                    continue
+                                    
+                                # Get bounding box coordinates
+                                xmin = int(detection.xmin * display_frame.shape[1])
+                                ymin = int(detection.ymin * display_frame.shape[0])
+                                xmax = int(detection.xmax * display_frame.shape[1])
+                                ymax = int(detection.ymax * display_frame.shape[0])
+                                
+                                # Get the color based on class
+                                color = CLASS_SETTINGS[class_name]["color"]
+                                
+                                # Draw rectangle and text
+                                cv2.rectangle(display_frame, (xmin, ymin), (xmax, ymax), color, 2)
+                                cv2.putText(display_frame, f"{class_name} {detection.confidence:.2f}",
+                                            (xmin, ymin - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+                        
+                        # Add the frame to the buffer
+                        frame_buffer.add_frame(display_frame)
+                    
+                    # Send frames to the main process at a more controlled rate
+                    should_send_frame = (current_time - last_sent_frame_time) >= frame_send_interval
+                    
+                    if should_send_frame:
+                        # Get the latest frame from the buffer
+                        latest_frame = frame_buffer.get_latest_frame()
+                        
+                        if latest_frame is not None:
+                            # Only send if the queue isn't full
+                            if frame_queue.qsize() < frame_queue._maxsize - 1:
+                                try:
+                                    frame_queue.put(latest_frame, block=False)
+                                    last_sent_frame_time = current_time
+                                except Exception as e:
+                                    logger.warning(f"Error sending frame to main process: {str(e)}")
                     
                     # Reset consecutive error counter on successful frame processing
                     consecutive_errors = 0
@@ -680,115 +838,14 @@ def run_oak_camera(detection_queue, command_queue, status_queue, frame_queue):
                     # Skip this iteration and try again
                     continue
                 
-                frame_count += 1
+                # Sleep to reduce CPU usage - adaptive based on frame rate
+                sleep_time = max(0.001, min_frame_interval - (time.time() - current_time))
+                time.sleep(sleep_time)
                 
-                # Track best detection
-                best_detection = None
-                best_confidence = 0
-                
-                # Process each detection
-                for detection in detections:
-                    # Determine class name
-                    class_name = "Battery" if detection.label == 0 else "CBattery"
-                    
-                    # Skip if below class-specific threshold
-                    if class_name not in CLASS_SETTINGS or detection.confidence < CLASS_SETTINGS[class_name]["threshold"]:
-                        continue
-                    
-                    # Get spatial coordinates (in millimeters)
-                    x = detection.spatialCoordinates.x
-                    y = detection.spatialCoordinates.y
-                    z = detection.spatialCoordinates.z
-                    
-                    # Create a unique object identifier based on its approximate position in 3D space
-                    # Round position to nearest 10mm to account for small movements
-                    object_id = f"{round(x / 10) * 10}_{round(y / 10) * 10}"
-                    
-                    # Initialize object data if this is a new object
-                    if object_id not in class_objects[class_name]:
-                        class_objects[class_name][object_id] = {
-                            "z_history": [],
-                            "last_seen": time.time()
-                        }
-                    
-                    # Update last seen time
-                    class_objects[class_name][object_id]["last_seen"] = time.time()
-                    
-                    # Update Z history for this specific object (keep only last Z_HISTORY_MAX_SIZE values)
-                    class_objects[class_name][object_id]["z_history"].append(z)
-                    if len(class_objects[class_name][object_id]["z_history"]) > Z_HISTORY_MAX_SIZE:
-                        class_objects[class_name][object_id]["z_history"].pop(0)
-                    
-                    # Calculate average Z for this specific object
-                    avg_z = get_avg_z(class_objects[class_name][object_id])
-                    
-                    # Track best detection for picking
-                    if detection.confidence > best_confidence:
-                        best_confidence = detection.confidence
-                        best_detection = {
-                            "coordinates": [x, y, avg_z if avg_z is not None else z],  # Use averaged Z if available
-                            "class_name": class_name,
-                            "confidence": detection.confidence,
-                            "object_id": object_id,
-                            "raw_coordinates": [x, y, z],  # Also store raw coordinates
-                            "frame": frame_count
-                        }
-                
-                # Clean up old objects (not seen for more than OBJECT_CLEANUP_TIME seconds)
-                current_time = time.time()
-                for class_name in class_objects:
-                    # Create a copy of the keys to avoid modifying during iteration
-                    object_ids = list(class_objects[class_name].keys())
-                    for object_id in object_ids:
-                        if current_time - class_objects[class_name][object_id]["last_seen"] > OBJECT_CLEANUP_TIME:
-                            del class_objects[class_name][object_id]
-                
-                # Send best detection to main process
-                if best_detection:
-                    # Don't want to send the entire frame to avoid large data transfer
-                    # Just send the detection information
-                    detection_queue.put(best_detection)
-                
-                # Send video frame to main process (only if queue not full to avoid blocking)
-                try:
-                    # Create a smaller version of the frame for display
-                    display_frame = cv2.resize(frame, (640, 400))
-                    
-                    # Add detection visualization to the display frame
-                    for detection in detections:
-                        class_name = "Battery" if detection.label == 0 else "CBattery"
-                        
-                        # Skip if below threshold
-                        if class_name not in CLASS_SETTINGS or detection.confidence < CLASS_SETTINGS[class_name]["threshold"]:
-                            continue
-                            
-                        # Get bounding box coordinates
-                        xmin = int(detection.xmin * display_frame.shape[1])
-                        ymin = int(detection.ymin * display_frame.shape[0])
-                        xmax = int(detection.xmax * display_frame.shape[1])
-                        ymax = int(detection.ymax * display_frame.shape[0])
-                        
-                        # Get the color based on class
-                        color = CLASS_SETTINGS[class_name]["color"]
-                        
-                        # Draw rectangle and text
-                        cv2.rectangle(display_frame, (xmin, ymin), (xmax, ymax), color, 2)
-                        cv2.putText(display_frame, f"{class_name} {detection.confidence:.2f}",
-                                    (xmin, ymin - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-                    
-                    # Put in queue with non-blocking (if queue is full, skip this frame)
-                    if frame_queue.qsize() < 2:  # Only keep recent frames
-                        frame_queue.put(display_frame, block=False)
-                except Exception as e:
-                    logger.warning(f"Error sending frame to main process: {str(e)}")
-                
-                # Periodic garbage collection to prevent memory leaks
-                if current_time - last_gc_time > 10:  # Every 10 seconds
+                # Periodic garbage collection 
+                if current_time - last_gc_time > 30:  # Reduced from 10 to 30 seconds
                     gc.collect()
                     last_gc_time = current_time
-                
-                # Sleep to reduce CPU usage
-                time.sleep(0.01)
                 
             except Exception as e:
                 logger.error(f"Error in Oak camera process: {str(e)}")
@@ -823,7 +880,7 @@ def start_oak_camera_process():
     detection_queue = multiprocessing.Queue()
     command_queue = multiprocessing.Queue()
     status_queue = multiprocessing.Queue()
-    frame_queue = multiprocessing.Queue(maxsize=2)  # Limit to 2 frames to prevent memory issues
+    frame_queue = multiprocessing.Queue(maxsize=4)  # Increased from 2 to 4 for better buffering
     
     # Create and start the process
     process = multiprocessing.Process(
@@ -864,15 +921,22 @@ if __name__ == "__main__":
         print(f"Running test for {run_time} seconds")
         print("'p': pause, 'r': resume, 'f': force recovery, 'q': quit")
         
+        # Last valid frame for display
+        last_valid_frame = None
+        
         while time.time() - start_time < run_time:
             if not detection_queue.empty():
                 detection = detection_queue.get()
                 print(f"Detection: {detection['class_name']} at {detection['coordinates']}")
             
-            # Display video feed
+            # Display video feed with improved handling
             if not frame_queue.empty():
                 frame = frame_queue.get()
-                cv2.imshow("Test Feed", frame)
+                if frame is not None:
+                    last_valid_frame = frame.copy()
+            
+            if last_valid_frame is not None:
+                cv2.imshow("Test Feed", last_valid_frame)
                 
             # Handle key presses
             key = cv2.waitKey(1) & 0xFF
