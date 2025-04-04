@@ -46,6 +46,217 @@ class FrameBuffer:
             return self.buffer[-1].copy()  # Return a copy of the latest frame
 
 
+class PositionTracker:
+    """
+    Class to track and smooth object positions over time
+    """
+    def __init__(self, smoothing_factor=0.7, history_size=10):
+        # Higher smoothing_factor means more weight to historical positions
+        self.smoothing_factor = smoothing_factor
+        self.history_size = history_size
+        # Dict to store objects by ID
+        self.tracked_objects = {}
+        
+    def update_object(self, object_id, class_name, position, confidence, label, spatial_coords):
+        """
+        Update object position with smoothing
+        
+        Args:
+            object_id (str): Unique identifier for the object
+            class_name (str): Class name of the object
+            position (tuple): Current position (x, y, z)
+            confidence (float): Detection confidence
+            label (int): Detection label
+            spatial_coords: Original spatial coordinates object
+            
+        Returns:
+            dict: Updated object data
+        """
+        # Get current time for tracking object age
+        current_time = time.time()
+        
+        # Initialize object if it's new
+        if object_id not in self.tracked_objects:
+            self.tracked_objects[object_id] = {
+                'class_name': class_name,
+                'position_history': [],
+                'smoothed_position': position,
+                'confidence': confidence,
+                'first_seen': current_time,
+                'last_seen': current_time,
+                'label': label,
+                'detections_count': 0,
+                'box_history': []
+            }
+        
+        # Update existing object
+        obj = self.tracked_objects[object_id]
+        obj['last_seen'] = current_time
+        obj['detections_count'] += 1
+        
+        # Add position to history
+        obj['position_history'].append(position)
+        
+        # Keep history at specified size
+        if len(obj['position_history']) > self.history_size:
+            obj['position_history'].pop(0)
+        
+        # Update confidence (keep the highest confidence seen)
+        if confidence > obj['confidence']:
+            obj['confidence'] = confidence
+            obj['label'] = label
+        
+        # Calculate smoothed position
+        # If this is a new object or has few detections, use less smoothing
+        if obj['detections_count'] < 5:
+            # Use less smoothing for new objects
+            temp_smoothing = self.smoothing_factor * 0.5
+        else:
+            # Use full smoothing for established objects
+            temp_smoothing = self.smoothing_factor
+        
+        # Apply exponential smoothing to position
+        for i in range(3):  # x, y, z
+            obj['smoothed_position'][i] = (
+                temp_smoothing * obj['smoothed_position'][i] +
+                (1 - temp_smoothing) * position[i]
+            )
+            
+        # Add the bounding box to history
+        if hasattr(spatial_coords, 'xmin'):
+            box = {
+                'xmin': spatial_coords.xmin,
+                'ymin': spatial_coords.ymin, 
+                'xmax': spatial_coords.xmax,
+                'ymax': spatial_coords.ymax
+            }
+            obj['box_history'].append(box)
+            
+            # Keep box history at specified size
+            if len(obj['box_history']) > 5:
+                obj['box_history'].pop(0)
+        
+        return obj
+        
+    def get_smoothed_box(self, object_id):
+        """
+        Get smoothed bounding box for an object
+        
+        Args:
+            object_id (str): Unique identifier for the object
+            
+        Returns:
+            dict: Smoothed bounding box coordinates or None
+        """
+        if object_id not in self.tracked_objects:
+            return None
+            
+        obj = self.tracked_objects[object_id]
+        if not obj.get('box_history'):
+            return None
+            
+        # Average the box coordinates
+        box_count = len(obj['box_history'])
+        if box_count == 0:
+            return None
+            
+        # Calculate weighted average with more recent boxes having higher weight
+        smoothed_box = {'xmin': 0, 'ymin': 0, 'xmax': 0, 'ymax': 0}
+        total_weight = 0
+        
+        for i, box in enumerate(obj['box_history']):
+            # Weight increases for more recent boxes (i starts at 0)
+            weight = i + 1
+            total_weight += weight
+            
+            for key in smoothed_box:
+                smoothed_box[key] += box[key] * weight
+        
+        # Normalize by total weight
+        for key in smoothed_box:
+            smoothed_box[key] /= total_weight
+            
+        return smoothed_box
+        
+    def clean_old_objects(self, max_age_seconds=10):
+        """
+        Remove objects that haven't been seen for a while
+        
+        Args:
+            max_age_seconds (float): Maximum time since last detection
+        """
+        current_time = time.time()
+        objects_to_remove = []
+        
+        for object_id, obj in self.tracked_objects.items():
+            if current_time - obj['last_seen'] > max_age_seconds:
+                objects_to_remove.append(object_id)
+                
+        for object_id in objects_to_remove:
+            del self.tracked_objects[object_id]
+            
+    def get_all_tracked_objects(self):
+        """
+        Get all currently tracked objects
+        
+        Returns:
+            dict: All tracked objects with their data
+        """
+        return self.tracked_objects
+
+
+def apply_median_z_filter(position_tracker, object_id, current_z, window_size=5):
+    """
+    Apply a median filter to Z values to reduce noise/flickering.
+    
+    Args:
+        position_tracker: The position tracker object
+        object_id: The ID of the object to filter
+        current_z: The current Z value from detection
+        window_size: Size of the median filter window
+        
+    Returns:
+        float: Filtered Z value
+    """
+    if object_id not in position_tracker.tracked_objects:
+        return current_z
+        
+    obj = position_tracker.tracked_objects[object_id]
+    
+    # Get Z values from position history
+    z_history = [pos[2] for pos in obj['position_history']]
+    
+    # If we don't have enough history, use the current Z
+    if len(z_history) < 3:
+        return current_z
+        
+    # Add current Z to the list
+    z_values = z_history + [current_z]
+    
+    # Apply median filter
+    sorted_z = sorted(z_values)
+    median_z = sorted_z[len(sorted_z) // 2]
+    
+    # For objects with more detections, apply additional smoothing
+    if obj['detections_count'] > 10:
+        # Use a weighted average between median and current smoothed Z
+        current_smoothed_z = obj['smoothed_position'][2]
+        filtered_z = 0.7 * current_smoothed_z + 0.3 * median_z
+    else:
+        # For newer objects, use the median
+        filtered_z = median_z
+        
+    return filtered_z
+
+# Add this function to the position tracker class for convenience:
+def PositionTracker_apply_z_filter(self, object_id, current_z):
+    """Apply Z-value stabilization filter to an object"""
+    return apply_median_z_filter(self, object_id, current_z)
+
+# Monkey-patch this method into the PositionTracker class:
+PositionTracker.apply_z_filter = PositionTracker_apply_z_filter
+
+
 def setup_vision_pipeline():
     """
     Setup and configure the DepthAI vision pipeline
@@ -474,6 +685,9 @@ def run_oak_camera(detection_queue, command_queue, status_queue, frame_queue):
     # Create a frame buffer
     frame_buffer = FrameBuffer(max_size=5)
     
+    # Create position tracker for smoother object detection
+    position_tracker = PositionTracker(smoothing_factor=0.7, history_size=10)
+    
     # Add frame processing control variables
     target_fps = 30
     min_frame_interval = 1.0 / target_fps
@@ -601,6 +815,8 @@ def run_oak_camera(detection_queue, command_queue, status_queue, frame_queue):
                             "Battery": {},
                             "CBattery": {}
                         }
+                        # Also reset position tracker
+                        position_tracker = PositionTracker(smoothing_factor=0.7, history_size=10)
                     elif cmd.get("command") == "force_recovery":
                         logger.info("Received force recovery command")
                         # Force device recovery
@@ -668,6 +884,7 @@ def run_oak_camera(detection_queue, command_queue, status_queue, frame_queue):
                         # Track best detection
                         best_detection = None
                         best_confidence = 0
+                        best_object_id = None
                         
                         for detection in detections:
                             # Determine class name
@@ -684,46 +901,41 @@ def run_oak_camera(detection_queue, command_queue, status_queue, frame_queue):
                             
                             # Create a unique object identifier based on its approximate position in 3D space
                             # Round position to nearest 10mm to account for small movements
-                            object_id = f"{round(x / 10) * 10}_{round(y / 10) * 10}"
+                            object_id = f"{round(x / 10) * 10}_{round(y / 10) * 10}_{class_name}"
                             
-                            # Initialize object data if this is a new object
-                            if object_id not in class_objects[class_name]:
-                                class_objects[class_name][object_id] = {
-                                    "z_history": [],
-                                    "last_seen": time.time()
-                                }
+                            # Apply Z-value filter before tracking
+                            filtered_z = apply_median_z_filter(position_tracker, object_id, z)
                             
-                            # Update last seen time
-                            class_objects[class_name][object_id]["last_seen"] = time.time()
+                            # Update the position tracker with this detection
+                            position = [x, y, filtered_z]  # Use filtered Z value
+                            updated_obj = position_tracker.update_object(
+                                object_id, 
+                                class_name, 
+                                position, 
+                                detection.confidence,
+                                detection.label,
+                                detection
+                            )
                             
-                            # Update Z history for this specific object (keep only last Z_HISTORY_MAX_SIZE values)
-                            class_objects[class_name][object_id]["z_history"].append(z)
-                            if len(class_objects[class_name][object_id]["z_history"]) > Z_HISTORY_MAX_SIZE:
-                                class_objects[class_name][object_id]["z_history"].pop(0)
-                            
-                            # Calculate average Z for this specific object
-                            avg_z = get_avg_z(class_objects[class_name][object_id])
+                            # Use the smoothed position from the tracker
+                            smoothed_position = updated_obj['smoothed_position']
                             
                             # Track best detection for picking
                             if detection.confidence > best_confidence:
                                 best_confidence = detection.confidence
+                                best_object_id = object_id
                                 best_detection = {
-                                    "coordinates": [x, y, avg_z if avg_z is not None else z],  # Use averaged Z if available
+                                    "coordinates": smoothed_position,  # Use smoothed position
                                     "class_name": class_name,
                                     "confidence": detection.confidence,
                                     "object_id": object_id,
-                                    "raw_coordinates": [x, y, z],  # Also store raw coordinates
-                                    "frame": frame_count
+                                    "raw_coordinates": [x, y, z],  # Store raw coordinates for reference
+                                    "frame": frame_count,
+                                    "stable_count": updated_obj['detections_count']  # Add stability indicator
                                 }
                         
-                        # Clean up old objects (not seen for more than OBJECT_CLEANUP_TIME seconds)
-                        current_time = time.time()
-                        for class_name in class_objects:
-                            # Create a copy of the keys to avoid modifying during iteration
-                            object_ids = list(class_objects[class_name].keys())
-                            for object_id in object_ids:
-                                if current_time - class_objects[class_name][object_id]["last_seen"] > OBJECT_CLEANUP_TIME:
-                                    del class_objects[class_name][object_id]
+                        # Clean up old objects
+                        position_tracker.clean_old_objects(max_age_seconds=OBJECT_CLEANUP_TIME)
                         
                         # Send best detection to main process
                         if best_detection:
@@ -750,20 +962,51 @@ def run_oak_camera(detection_queue, command_queue, status_queue, frame_queue):
                                 # Skip if below threshold
                                 if class_name not in CLASS_SETTINGS or detection.confidence < CLASS_SETTINGS[class_name]["threshold"]:
                                     continue
-                                    
-                                # Get bounding box coordinates
-                                xmin = int(detection.xmin * display_frame.shape[1])
-                                ymin = int(detection.ymin * display_frame.shape[0])
-                                xmax = int(detection.xmax * display_frame.shape[1])
-                                ymax = int(detection.ymax * display_frame.shape[0])
                                 
-                                # Get the color based on class
+                                # Get spatial coordinates for object ID
+                                x = detection.spatialCoordinates.x
+                                y = detection.spatialCoordinates.y
+                                object_id = f"{round(x / 10) * 10}_{round(y / 10) * 10}_{class_name}"
+                                
+                                # Get color based on class
                                 color = CLASS_SETTINGS[class_name]["color"]
+                                
+                                # Use smoothed bounding box if available
+                                smoothed_box = position_tracker.get_smoothed_box(object_id)
+                                
+                                if smoothed_box:
+                                    # Convert normalized coordinates to pixel coordinates
+                                    xmin = int(smoothed_box['xmin'] * display_frame.shape[1])
+                                    ymin = int(smoothed_box['ymin'] * display_frame.shape[0])
+                                    xmax = int(smoothed_box['xmax'] * display_frame.shape[1])
+                                    ymax = int(smoothed_box['ymax'] * display_frame.shape[0])
+                                else:
+                                    # Fall back to original detection box if no smoothed box
+                                    xmin = int(detection.xmin * display_frame.shape[1])
+                                    ymin = int(detection.ymin * display_frame.shape[0])
+                                    xmax = int(detection.xmax * display_frame.shape[1])
+                                    ymax = int(detection.ymax * display_frame.shape[0])
                                 
                                 # Draw rectangle and text
                                 cv2.rectangle(display_frame, (xmin, ymin), (xmax, ymax), color, 2)
-                                cv2.putText(display_frame, f"{class_name} {detection.confidence:.2f}",
-                                            (xmin, ymin - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+                                
+                                # Add stability indicator to the label
+                                if object_id in position_tracker.tracked_objects:
+                                    det_count = position_tracker.tracked_objects[object_id]['detections_count']
+                                    confidence = detection.confidence
+                                    
+                                    # Add stability icon based on detection count
+                                    stability_icon = ""
+                                    if det_count > 15:
+                                        stability_icon = "★"  # Very stable
+                                    elif det_count > 8:
+                                        stability_icon = "☆"  # Stable
+                                    
+                                    cv2.putText(display_frame, f"{class_name} {confidence:.2f} {stability_icon}",
+                                                (xmin, ymin - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+                                else:
+                                    cv2.putText(display_frame, f"{class_name} {detection.confidence:.2f}",
+                                                (xmin, ymin - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
                         
                         # Add the frame to the buffer
                         frame_buffer.add_frame(display_frame)
