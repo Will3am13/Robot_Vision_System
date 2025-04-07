@@ -516,161 +516,28 @@ def main():
         last_processed_time = 0
         cooldown_time = 10  # Seconds between auto-processing
         auto_mode = False
-        vision_enabled = True # Start with vision processing enabled
+        vision_enabled = True  # Start with vision processing enabled
 
         while True:
+            print(f"Vision Enabled: {vision_enabled}")  # Debug print
+
             if vision_enabled:
-                # Get frames and detections
+                print("Attempting to get video frame...")  # Debug print
                 inVideo = qVideo.get()
+                print(f"Video frame received: {inVideo is not None}")  # Debug print
+
+                print("Attempting to get detections...")  # Debug print
                 inDet = qDet.get()
+                print(f"Detections received: {inDet is not None}")  # Debug print
 
-                frame = inVideo.getCvFrame()
-                detections = inDet.detections
-
-                # Track best detection
-                best_detection = None
-                best_confidence = 0
-
-                # Process each detection
-                for detection in detections:
-                    # Determine class name
-                    class_name = "Battery" if detection.label == 0 else "CBattery"
-
-                    # Skip if below class-specific threshold
-                    if class_name not in class_settings or detection.confidence < class_settings[class_name]["threshold"]:
-                        continue
-
-                    # Get bounding box coordinates
-                    xmin, ymin = int(detection.xmin * frame.shape[1]), int(detection.ymin * frame.shape[0])
-                    xmax, ymax = int(detection.xmax * frame.shape[1]), int(detection.ymax * frame.shape[0])
-
-                    # Get spatial coordinates (in millimeters)
-                    x = detection.spatialCoordinates.x
-                    y = detection.spatialCoordinates.y
-                    z = detection.spatialCoordinates.z
-
-                    # Create a unique object identifier based on its approximate position in 3D space
-                    # Round position to nearest 10mm to account for small movements
-                    object_id = f"{round(x / 10) * 10}_{round(y / 10) * 10}"
-
-                    # Initialize object data if this is a new object
-                    if object_id not in class_settings[class_name]["objects"]:
-                        class_settings[class_name]["objects"][object_id] = {
-                            "z_history": [],
-                            "last_seen": time.time()
-                        }
-
-                    # Update last seen time
-                    class_settings[class_name]["objects"][object_id]["last_seen"] = time.time()
-
-                    # Update Z history for this specific object (keep only last 50 values)
-                    class_settings[class_name]["objects"][object_id]["z_history"].append(z)
-                    if len(class_settings[class_name]["objects"][object_id]["z_history"]) > 50:
-                        class_settings[class_name]["objects"][object_id]["z_history"].pop(0)
-
-                    # Calculate average Z for this specific object
-                    avg_z = get_avg_z(class_name, object_id)
-
-                    # Transform camera coordinates to robot coordinates to estimate distance
-                    # Update to handle the new return value (original_distance) from transform_point
-                    robot_xyz, settings, original_distance = transform_point([x, y, z])
-
-                    # Use the original_distance directly instead of recalculating it
-                    distance = original_distance
-
-                    # Draw bounding box and information
-                    color = class_settings[class_name]["color"]
-                    cv2.rectangle(frame, (xmin, ymin), (xmax, ymax), color, 2)
-                    cv2.putText(frame, f"{class_name} {detection.confidence:.2f}",
-                                (xmin, ymin - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-
-                    # Display spatial coordinates with both raw and averaged Z
-                    cv2.putText(frame, f"X: {x:.0f}mm  Y: {y:.0f}mm  Z: {z:.0f}mm",
-                                (xmin, ymin - 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-
-                    # Display distance from origin and range category
-                    cv2.putText(frame, f"Distance: {distance:.0f}mm | Range: {settings['range']}",
-                                (xmin, ymin - 50), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-
-                    if avg_z is not None:
-                        cv2.putText(frame,
-                                    f"Avg Z: {avg_z:.0f}mm ({len(class_settings[class_name]['objects'][object_id]['z_history'])}/50 samples)",
-                                    (xmin, ymin - 70), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-
-                    # Also display object ID for debugging
-                    cv2.putText(frame, f"ID: {object_id}",
-                                (xmin, ymin - 90), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-
-                    # Track best detection for picking
-                    if detection.confidence > best_confidence:
-                        best_confidence = detection.confidence
-                        best_detection = {
-                            "coordinates": [x, y, avg_z if avg_z is not None else z],  # Use averaged Z if available
-                            "class_name": class_name,
-                            "confidence": detection.confidence,
-                            "object_id": object_id
-                        }
-
-                # Display status and instructions
-                mode_text = "AUTO MODE" if auto_mode else "MANUAL MODE"
-                vision_status = "VISION ON" if vision_enabled else "VISION OFF"
-                cv2.putText(frame, mode_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-                cv2.putText(frame, vision_status, (250, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
-                cv2.putText(frame, "p: pick  a: toggle auto  v: toggle vision  q: quit", (10, 60),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
-
-                # Display distance ranges and their settings
-                cv2.putText(frame, "Distance Ranges:", (10, 90),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
-
-                y_pos = 110
-                range_info = [
-                    f"<130mm: Too close",
-                    f"130-140mm: Short range [-142,30,59] Offset[75,10,-20] Min Z:{DISTANCE_SETTINGS['short_range']['min_z']}mm",
-                    f"140-280mm: Normal range [180,0,45] Offset[0,5,0] Min Z:{DISTANCE_SETTINGS['normal_range']['min_z']}mm",
-                    f"280-300mm: Long range [150,-24,50] Offset[-50,5,0] Min Z:{DISTANCE_SETTINGS['long_range']['min_z']}mm",
-                    f">300mm: Too far"
-                ]
-
-                for info in range_info:
-                    cv2.putText(frame, info, (10, y_pos),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
-                    y_pos += 20
-
-                # Show current Z history status for each object
-                y_pos = 230
-                for class_name in ["Battery", "CBattery"]:
-                    object_count = len(class_settings[class_name]["objects"])
-                    cv2.putText(frame, f"{class_name} Objects: {object_count}", (10, y_pos),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, class_settings[class_name]["color"], 1)
-                    y_pos += 20
-
-                    # Display the first 3 objects for each class
-                    count = 0
-                    for object_id, object_data in class_settings[class_name]["objects"].items():
-                        if count >= 3:  # Limit to 3 objects to prevent cluttering the display
-                            break
-                        avg_z = get_avg_z(class_name, object_id)
-                        history_count = len(object_data["z_history"])
-                        status = f"  ID {object_id}: Z-Buffer {history_count}/50"
-                        if avg_z is not None:
-                            status += f" (Avg: {avg_z:.0f}mm)"
-                        cv2.putText(frame, status, (20, y_pos),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, class_settings[class_name]["color"], 1)
-                        y_pos += 20
-                        count += 1
-
-                # Clean up old objects (not seen for more than 10 seconds)
-                current_time = time.time()
-                for class_name in ["Battery", "CBattery"]:
-                    # Create a copy of the keys to avoid modifying during iteration
-                    object_ids = list(class_settings[class_name]["objects"].keys())
-                    for object_id in object_ids:
-                        if current_time - class_settings[class_name]["objects"][object_id]["last_seen"] > 10:
-                            del class_settings[class_name]["objects"][object_id]
-
-                # Show frame
-                cv2.imshow("Battery Sorting System", frame)
+                if inVideo is not None:
+                    frame = inVideo.getCvFrame()
+                    print(f"Frame shape: {frame.shape}")  # Debug print
+                    cv2.imshow("Battery Sorting System", frame)
+                else:
+                    print("No video frame received.")  # Debug print
+                    # You might want to add a small delay here to avoid busy-looping
+                    time.sleep(0.01)
             else:
                 # Display a blank frame or a "Vision Off" message
                 blank_frame = np.zeros((800, 1280, 3), dtype=np.uint8)
@@ -690,7 +557,7 @@ def main():
                     control_out_queue.tryGet()
                 elif key == ord('q'):
                     break
-                continue # Skip the rest of the loop if vision is off
+                continue  # Skip the rest of the loop if vision is off
 
             # Handle key presses
             key = cv2.waitKey(1)
