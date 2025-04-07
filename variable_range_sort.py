@@ -226,7 +226,7 @@ def transform_point(cam_point):
 
     # Store the original coordinates before applying any offsets
     original_coords = result[0].copy()
-   
+
     # Calculate distance from origin in XY plane BEFORE applying any offsets
     distance = calculate_xy_distance(original_coords[0], original_coords[1])
 
@@ -263,7 +263,7 @@ def is_valid_coord(coord):
         print(f"Out of range in roll: {rx}")
         return False
     if not (-180 <= ry <= 180):  # ry range
-        print(f"Out of range in pitch: {ry}")
+        print(f"Out of range in pitch: ry}")
         return False
     if not (-180 <= rz <= 180):  # rz range
         print(f"Out of range in yaw: {rz}")
@@ -272,7 +272,7 @@ def is_valid_coord(coord):
 
 
 def setup_vision_pipeline():
-    """Setup and configure the DepthAI vision pipeline with script node for toggling detection"""
+    """Setup and configure the DepthAI vision pipeline with a Script node for control"""
     # Create pipeline
     pipeline = dai.Pipeline()
 
@@ -281,14 +281,19 @@ def setup_vision_pipeline():
     spatialDetectionNetwork = pipeline.create(dai.node.YoloSpatialDetectionNetwork)
     stereo = pipeline.create(dai.node.StereoDepth)
     monoRight = pipeline.create(dai.node.MonoCamera)
+    script = pipeline.create(dai.node.Script)
+    control_in = pipeline.create(dai.node.XLinkIn)
 
     # Create output nodes
     xoutVideo = pipeline.create(dai.node.XLinkOut)
     xoutNN = pipeline.create(dai.node.XLinkOut)
+    control_out = pipeline.create(dai.node.XLinkOut)
 
     # Set stream names
     xoutVideo.setStreamName("video")
     xoutNN.setStreamName("detections")
+    control_in.setStreamName("vision_control")
+    control_out.setStreamName("control_status")
 
     # Properties for the color camera (left camera)
     camRgb.setBoardSocket(dai.CameraBoardSocket.CAM_B)
@@ -323,51 +328,31 @@ def setup_vision_pipeline():
     spatialDetectionNetwork.setAnchorMasks({})
     spatialDetectionNetwork.setIouThreshold(0.5)
 
-    # Create Script node for toggling detection
-    script = pipeline.create(dai.node.Script)
-    
-    # Create XLinkIn to control the script
-    xin = pipeline.create(dai.node.XLinkIn)
-    xin.setStreamName("control")
-    xin.out.link(script.inputs["control"])
-
-    # Set up script to toggle forwarding frames to detection network
+    # Script node to control data forwarding
     script.setScript("""
-        # Initialize toggle to true (detection enabled by default)
-        toggle = True
-        
+        control = False
         while True:
-            # Check for control messages to toggle detection
             ctrl = node.io['control'].tryGet()
             if ctrl is not None:
-                # Read the first byte as a boolean
-                toggle = ctrl.getData()[0]
-                node.warn(f"Detection toggled: {'ON' if toggle else 'OFF'}")
-            
-            # Get frame from camera
-            preview = node.io['preview'].get()
-            
-            # Always send frame to video output
-            node.io['video_out'].send(preview)
-            
-            # Only send to NN if toggle is enabled
-            if toggle:
-                node.io['nn_in'].send(preview)
+                control = ctrl.getData()[0]
+                node.warn(f'Vision control toggled: {control}')
+                node.io['status'].send(dai.Buffer()) # Send acknowledgment
+
+            frame = node.io['video_in'].get()
+            if control:
+                node.io['nn_in'].send(frame)
     """)
 
-    # Connect camera preview to script input
-    camRgb.preview.link(script.inputs["preview"])
-    
-    # Connect script outputs to video output and neural network
-    script.outputs.add("video_out")
-    script.outputs.add("nn_in")
-    
-    script.outputs["video_out"].link(xoutVideo.input)
-    script.outputs["nn_in"].link(spatialDetectionNetwork.input)
-    
-    # Link other nodes
+    # Link nodes
+    camRgb.video.link(script.inputs['video_in'])
+    script.outputs['nn_in'].link(spatialDetectionNetwork.input)
+    script.inputs['control'].link(control_in.out)
+    script.outputs['status'].link(control_out.input)
+
+    camRgb.video.link(xoutVideo.input)
     camRgb.video.link(stereo.left)
     monoRight.out.link(stereo.right)
+
     stereo.depth.link(spatialDetectionNetwork.inputDepth)
     spatialDetectionNetwork.out.link(xoutNN.input)
 
@@ -411,7 +396,7 @@ def pick_and_place_battery(mc, camera_coords, is_cbattery=False):
     # Transform camera coordinates to robot coordinates with distance-based settings
     # Now also get the original distance directly from the transform_point function
     robot_xyz, settings, original_distance = transform_point(camera_coords)
-   
+
     # Print information about the coordinates and settings
     print(f"Camera coordinates: {camera_coords}")
     print(f"Transformed robot coordinates: {robot_xyz}")
@@ -519,23 +504,10 @@ def main():
         # Output queues
         qVideo = device.getOutputQueue(name="video", maxSize=4, blocking=False)
         qDet = device.getOutputQueue(name="detections", maxSize=4, blocking=False)
-        
-        # Input queue for script control
-        controlQueue = device.getInputQueue(name="control")
+        control_in_queue = device.getInputQueue("vision_control")
+        control_out_queue = device.getOutputQueue("control_status")
 
-        # Initialize detection toggle state
-        detection_enabled = True
-        
-        # Send initial detection state to script node
-        ctrl = dai.Buffer()
-        ctrl.setData(bytearray([detection_enabled]))
-        controlQueue.send(ctrl)
-
-        print("Vision system running. Press:")
-        print("  't': toggle detection on/off")
-        print("  'p': pick up detected battery")
-        print("  'a': toggle auto-mode")
-        print("  'q': quit")
+        print("Vision system running. Press 'p' to pick up detected battery, 'a' to enable auto-mode, 'v' to toggle vision processing, 'q' to quit.")
         print("Offset controls are automatically determined based on distance to object.")
         print(f"Minimum Z values: Short range: {DISTANCE_SETTINGS['short_range']['min_z']}mm, " +
               f"Normal range: {DISTANCE_SETTINGS['normal_range']['min_z']}mm, " +
@@ -545,143 +517,254 @@ def main():
         last_processed_time = 0
         cooldown_time = 10  # Seconds between auto-processing
         auto_mode = False
+        vision_enabled = True # Start with vision processing enabled
 
         while True:
-            # Get frames and detections
-            inVideo = qVideo.get()
-            inDet = qDet.get()
+            if vision_enabled:
+                # Get frames and detections
+                inVideo = qVideo.get()
+                inDet = qDet.get()
 
-            frame = inVideo.getCvFrame()
-            detections = inDet.detections
+                frame = inVideo.getCvFrame()
+                detections = inDet.detections
 
-            # Track best detection
-            best_detection = None
-            best_confidence = 0
+                # Track best detection
+                best_detection = None
+                best_confidence = 0
 
-            # Process each detection
-            for detection in detections:
-                # Determine class name
-                class_name = "Battery" if detection.label == 0 else "CBattery"
+                # Process each detection
+                for detection in detections:
+                    # Determine class name
+                    class_name = "Battery" if detection.label == 0 else "CBattery"
 
-                # Skip if below class-specific threshold
-                if class_name not in class_settings or detection.confidence < class_settings[class_name]["threshold"]:
-                    continue
+                    # Skip if below class-specific threshold
+                    if class_name not in class_settings or detection.confidence < class_settings[class_name]["threshold"]:
+                        continue
 
-                # Get bounding box coordinates
-                xmin, ymin = int(detection.xmin * frame.shape[1]), int(detection.ymin * frame.shape[0])
-                xmax, ymax = int(detection.xmax * frame.shape[1]), int(detection.ymax * frame.shape[0])
+                    # Get bounding box coordinates
+                    xmin, ymin = int(detection.xmin * frame.shape[1]), int(detection.ymin * frame.shape[0])
+                    xmax, ymax = int(detection.xmax * frame.shape[1]), int(detection.ymax * frame.shape[0])
 
-                # Get spatial coordinates (in millimeters)
-                x = detection.spatialCoordinates.x
-                y = detection.spatialCoordinates.y
-                z = detection.spatialCoordinates.z
+                    # Get spatial coordinates (in millimeters)
+                    x = detection.spatialCoordinates.x
+                    y = detection.spatialCoordinates.y
+                    z = detection.spatialCoordinates.z
 
-                # Create a unique object identifier based on its approximate position in 3D space
-                # Round position to nearest 10mm to account for small movements
-                object_id = f"{round(x / 10) * 10}_{round(y / 10) * 10}"
+                    # Create a unique object identifier based on its approximate position in 3D space
+                    # Round position to nearest 10mm to account for small movements
+                    object_id = f"{round(x / 10) * 10}_{round(y / 10) * 10}"
 
-                # Initialize object data if this is a new object
-                if object_id not in class_settings[class_name]["objects"]:
-                    class_settings[class_name]["objects"][object_id] = {
-                        "z_history": [],
-                        "last_seen": time.time()
-                    }
+                    # Initialize object data if this is a new object
+                    if object_id not in class_settings[class_name]["objects"]:
+                        class_settings[class_name]["objects"][object_id] = {
+                            "z_history": [],
+                            "last_seen": time.time()
+                        }
 
-                # Update last seen time
-                class_settings[class_name]["objects"][object_id]["last_seen"] = time.time()
+                    # Update last seen time
+                    class_settings[class_name]["objects"][object_id]["last_seen"] = time.time()
 
-                # Update Z history for this specific object (keep only last 50 values)
-                class_settings[class_name]["objects"][object_id]["z_history"].append(z)
-                if len(class_settings[class_name]["objects"][object_id]["z_history"]) > 50:
-                    class_settings[class_name]["objects"][object_id]["z_history"].pop(0)
+                    # Update Z history for this specific object (keep only last 50 values)
+                    class_settings[class_name]["objects"][object_id]["z_history"].append(z)
+                    if len(class_settings[class_name]["objects"][object_id]["z_history"]) > 50:
+                        class_settings[class_name]["objects"][object_id]["z_history"].pop(0)
 
-                # Calculate average Z for this specific object
-                avg_z = get_avg_z(class_name, object_id)
-
-                # Transform camera coordinates to robot coordinates to estimate distance
-                # Update to handle the new return value (original_distance) from transform_point
-                robot_xyz, settings, original_distance = transform_point([x, y, z])
-                
-                # Use the original_distance directly instead of recalculating it
-                distance = original_distance
-
-                # Draw bounding box and information
-                color = class_settings[class_name]["color"]
-                cv2.rectangle(frame, (xmin, ymin), (xmax, ymax), color, 2)
-                cv2.putText(frame, f"{class_name} {detection.confidence:.2f}",
-                            (xmin, ymin - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-
-                # Display spatial coordinates with both raw and averaged Z
-                cv2.putText(frame, f"X: {x:.0f}mm  Y: {y:.0f}mm  Z: {z:.0f}mm",
-                            (xmin, ymin - 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-
-                # Display distance from origin and range category
-                cv2.putText(frame, f"Distance: {distance:.0f}mm | Range: {settings['range']}",
-                            (xmin, ymin - 50), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-
-                if avg_z is not None:
-                    cv2.putText(frame,
-                                f"Avg Z: {avg_z:.0f}mm ({len(class_settings[class_name]['objects'][object_id]['z_history'])}/50 samples)",
-                                (xmin, ymin - 70), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-
-                # Also display object ID for debugging
-                cv2.putText(frame, f"ID: {object_id}",
-                            (xmin, ymin - 90), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-
-                # Track best detection for picking
-                if detection.confidence > best_confidence:
-                    best_confidence = detection.confidence
-                    best_detection = {
-                        "coordinates": [x, y, avg_z if avg_z is not None else z],  # Use averaged Z if available
-                        "class_name": class_name,
-                        "confidence": detection.confidence,
-                        "object_id": object_id
-                    }
-
-            # Display status and instructions
-            detection_status = "DETECTION ON" if detection_enabled else "DETECTION OFF"
-            mode_text = f"AUTO MODE - {detection_status}" if auto_mode else f"MANUAL MODE - {detection_status}"
-            cv2.putText(frame, mode_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-            cv2.putText(frame, "t: toggle detection  p: pick  a: toggle auto  q: quit", (10, 60),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
-
-            # Display distance ranges and their settings
-            cv2.putText(frame, "Distance Ranges:", (10, 90),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
-
-            y_pos = 110
-            range_info = [
-                f"<130mm: Too close",
-                f"130-140mm: Short range [-142,30,59] Offset[75,10,-20] Min Z:{DISTANCE_SETTINGS['short_range']['min_z']}mm",
-                f"140-280mm: Normal range [180,0,45] Offset[0,5,0] Min Z:{DISTANCE_SETTINGS['normal_range']['min_z']}mm",
-                f"280-300mm: Long range [150,-24,50] Offset[-50,5,0] Min Z:{DISTANCE_SETTINGS['long_range']['min_z']}mm",
-                f">300mm: Too far"
-            ]
-
-            for info in range_info:
-                cv2.putText(frame, info, (10, y_pos),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
-                y_pos += 20
-
-            # Show current Z history status for each object
-            y_pos = 230
-            for class_name in ["Battery", "CBattery"]:
-                object_count = len(class_settings[class_name]["objects"])
-                cv2.putText(frame, f"{class_name} Objects: {object_count}", (10, y_pos),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, class_settings[class_name]["color"], 1)
-                y_pos += 20
-
-                # Display the first 3 objects for each class
-                count = 0
-                for object_id, object_data in class_settings[class_name]["objects"].items():
-                    if count >= 3:  # Limit to 3 objects to prevent cluttering the display
-                        break
+                    # Calculate average Z for this specific object
                     avg_z = get_avg_z(class_name, object_id)
-                    history_count = len(object_data["z_history"])
-                    status = f"  ID {object_id}: Z-Buffer {history_count}/50"
+
+                    # Transform camera coordinates to robot coordinates to estimate distance
+                    # Update to handle the new return value (original_distance) from transform_point
+                    robot_xyz, settings, original_distance = transform_point([x, y, z])
+
+                    # Use the original_distance directly instead of recalculating it
+                    distance = original_distance
+
+                    # Draw bounding box and information
+                    color = class_settings[class_name]["color"]
+                    cv2.rectangle(frame, (xmin, ymin), (xmax, ymax), color, 2)
+                    cv2.putText(frame, f"{class_name} {detection.confidence:.2f}",
+                                (xmin, ymin - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+
+                    # Display spatial coordinates with both raw and averaged Z
+                    cv2.putText(frame, f"X: {x:.0f}mm  Y: {y:.0f}mm  Z: {z:.0f}mm",
+                                (xmin, ymin - 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+
+                    # Display distance from origin and range category
+                    cv2.putText(frame, f"Distance: {distance:.0f}mm | Range: {settings['range']}",
+                                (xmin, ymin - 50), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+
                     if avg_z is not None:
-                        status += f" (Avg: {avg_z:.0f}mm)"
-                    cv2.putText(frame, status, (20, y_pos),
+                        cv2.putText(frame,
+                                    f"Avg Z: {avg_z:.0f}mm ({len(class_settings[class_name]['objects'][object_id]['z_history'])}/50 samples)",
+                                    (xmin, ymin - 70), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+
+                    # Also display object ID for debugging
+                    cv2.putText(frame, f"ID: {object_id}",
+                                (xmin, ymin - 90), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+
+                    # Track best detection for picking
+                    if detection.confidence > best_confidence:
+                        best_confidence = detection.confidence
+                        best_detection = {
+                            "coordinates": [x, y, avg_z if avg_z is not None else z],  # Use averaged Z if available
+                            "class_name": class_name,
+                            "confidence": detection.confidence,
+                            "object_id": object_id
+                        }
+
+                # Display status and instructions
+                mode_text = "AUTO MODE" if auto_mode else "MANUAL MODE"
+                vision_status = "VISION ON" if vision_enabled else "VISION OFF"
+                cv2.putText(frame, mode_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                cv2.putText(frame, vision_status, (250, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
+                cv2.putText(frame, "p: pick  a: toggle auto  v: toggle vision  q: quit", (10, 60),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+
+                # Display distance ranges and their settings
+                cv2.putText(frame, "Distance Ranges:", (10, 90),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+
+                y_pos = 110
+                range_info = [
+                    f"<130mm: Too close",
+                    f"130-140mm: Short range [-142,30,59] Offset[75,10,-20] Min Z:{DISTANCE_SETTINGS['short_range']['min_z']}mm",
+                    f"140-280mm: Normal range [180,0,45] Offset[0,5,0] Min Z:{DISTANCE_SETTINGS['normal_range']['min_z']}mm",
+                    f"280-300mm: Long range [150,-24,50] Offset[-50,5,0] Min Z:{DISTANCE_SETTINGS['long_range']['min_z']}mm",
+                    f">300mm: Too far"
+                ]
+
+                for info in range_info:
+                    cv2.putText(frame, info, (10, y_pos),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
+                    y_pos += 20
+
+                # Show current Z history status for each object
+                y_pos = 230
+                for class_name in ["Battery", "CBattery"]:
+                    object_count = len(class_settings[class_name]["objects"])
+                    cv2.putText(frame, f"{class_name} Objects: {object_count}", (10, y_pos),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, class_settings[class_name]["color"], 1)
                     y_pos += 20
-                    count += 1
+
+                    # Display the first 3 objects for each class
+                    count = 0
+                    for object_id, object_data in class_settings[class_name]["objects"].items():
+                        if count >= 3:  # Limit to 3 objects to prevent cluttering the display
+                            break
+                        avg_z = get_avg_z(class_name, object_id)
+                        history_count = len(object_data["z_history"])
+                        status = f"  ID {object_id}: Z-Buffer {history_count}/50"
+                        if avg_z is not None:
+                            status += f" (Avg: {avg_z:.0f}mm)"
+                        cv2.putText(frame, status, (20, y_pos),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, class_settings[class_name]["color"], 1)
+                        y_pos += 20
+                        count += 1
+
+                # Clean up old objects (not seen for more than 10 seconds)
+                current_time = time.time()
+                for class_name in ["Battery", "CBattery"]:
+                    # Create a copy of the keys to avoid modifying during iteration
+                    object_ids = list(class_settings[class_name]["objects"].keys())
+                    for object_id in object_ids:
+                        if current_time - class_settings[class_name]["objects"][object_id]["last_seen"] > 10:
+                            del class_settings[class_name]["objects"][object_id]
+
+                # Show frame
+                cv2.imshow("Battery Sorting System", frame)
+            else:
+                # Display a blank frame or a "Vision Off" message
+                blank_frame = np.zeros((800, 1280, 3), dtype=np.uint8, dtype=np.uint8)
+                cv2.putText(blank_frame, "VISION PROCESSING DISABLED", (100, 400),
+                            cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 255), 3)
+                cv2.imshow("Battery Sorting System", blank_frame)
+                # Still need to check for key presses even when vision is off
+                key = cv2.waitKey(1)
+                if key == ord('v'):
+                    vision_enabled = not vision_enabled
+                    print(f"Vision processing {'enabled' if vision_enabled else 'disabled'}")
+                    # Send control message to the Script node
+                    ctrl_msg = dai.Buffer()
+                    ctrl_msg.setData([int(vision_enabled)])
+                    control_in_queue.send(ctrl_msg)
+                    # Optionally wait for acknowledgment
+                    control_out_queue.tryGet()
+                elif key == ord('q'):
+                    break
+                continue # Skip the rest of the loop if vision is off
+
+            # Handle key presses
+            key = cv2.waitKey(1)
+
+            # Toggle auto mode
+            if key == ord('a'):
+                auto_mode = not auto_mode
+                print(f"Auto mode {'enabled' if auto_mode else 'disabled'}")
+
+            # Toggle vision processing
+            if key == ord('v'):
+                vision_enabled = not vision_enabled
+                print(f"Vision processing {'enabled' if vision_enabled else 'disabled'}")
+                # Send control message to the Script node
+                ctrl_msg = dai.Buffer()
+                ctrl_msg.setData([int(vision_enabled)])
+                control_in_queue.send(ctrl_msg)
+                # Optionally wait for acknowledgment
+                control_out_queue.tryGet()
+
+            # Check if we should process a battery
+            current_time = time.time()
+            should_process = (
+                (key == ord('p')) or
+                (auto_mode and best_detection and current_time - last_processed_time > cooldown_time)
+            )
+
+            # Process the best detection if needed
+            if should_process and best_detection and vision_enabled:
+                battery_type = best_detection["class_name"]
+                is_cbattery = (battery_type == "CBattery")
+
+                print(f"\nProcessing {battery_type} (confidence: {best_detection['confidence']:.2f})")
+
+                # Log the Z value being used (raw or averaged)
+                camera_coords = best_detection["coordinates"]
+                object_id = best_detection["object_id"]
+                avg_z = get_avg_z(battery_type, object_id)
+                if avg_z is not None and avg_z == camera_coords[2]:
+                    print(
+                        f"Using averaged Z value: {avg_z:.0f}mm from {len(class_settings[battery_type]['objects'][object_id]['z_history'])} samples")
+
+                success = pick_and_place_battery(
+                    mc,
+                    camera_coords,
+                    is_cbattery
+                )
+
+                if success:
+                    print(f"Successfully sorted {battery_type}")
+                    last_processed_time = current_time
+
+                    # Clear object from tracking after successful pick
+                    if "object_id" in best_detection and best_detection["object_id"] in class_settings[battery_type][
+                        "objects"]:
+                        del class_settings[battery_type]["objects"][best_detection["object_id"]]
+                        print(f"Removed object {object_id} from tracking")
+                else:
+                    print(f"Failed to sort {battery_type}")
+
+            # Quit on 'q' key
+            if key == ord('q'):
+                break
+
+        # Clean up
+        cv2.destroyAllWindows()
+
+        # Return to neutral position
+        print("Returning to neutral position...")
+        mc.send_angles([0, 0, 0, 0, 0, 0], 30)
+        time.sleep(5)
+        print("System shutdown complete.")
+
+
+if __name__ == '__main__':
+    main()
