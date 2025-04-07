@@ -3,9 +3,7 @@ import numpy as np
 import requests
 import json
 import time
-import base64
 import io
-from PIL import Image
 
 def call_ultralytics_api(image_bytes, api_key="YOUR_API_KEY_HERE"):
     """Call the Ultralytics API for inference."""
@@ -129,36 +127,41 @@ def process_api_results(api_results, frame):
         
         # Process segmentation if available
         segments = result.get('segments')
-        if segments and segments.get('x') and segments.get('y'):
-            # Create contour from x, y coordinates
-            pts = np.array(list(zip(segments['x'], segments['y'])), dtype=np.int32)
-            contour = pts.reshape((-1, 1, 2))
+        if segments:
+            # Check if segments contains x and y arrays
+            x_coords = segments.get('x')
+            y_coords = segments.get('y')
             
-            # Draw the contour
-            cv2.drawContours(frame, [contour], -1, colors.get(class_idx, (255, 0, 0)), 2)
-            
-            # Calculate center, distance from frame center, and angle
-            center, distance, angle = calculate_center_and_angle(contour)
-            
-            if center is not None:
-                # Draw center point
-                cv2.circle(frame, center, 5, colors.get(class_idx, (255, 0, 0)), -1)
+            if x_coords and y_coords and len(x_coords) == len(y_coords):
+                # Create contour from x, y coordinates
+                pts = np.array(list(zip(x_coords, y_coords)), dtype=np.int32)
+                contour = pts.reshape((-1, 1, 2))
                 
-                # Draw line from frame center to object center
-                cv2.line(frame, frame_center, center, colors.get(class_idx, (255, 0, 0)), 2)
+                # Draw the contour
+                cv2.drawContours(frame, [contour], -1, colors.get(class_idx, (255, 0, 0)), 2)
                 
-                # We've already drawn text if we had a bounding box, so only draw if we didn't
-                if not box:
-                    text_lines = [
-                        f"Class: {class_names.get(class_idx, 'Unknown')} ({confidence:.2f})",
-                        f"Center: {center}",
-                        f"Dist from center: {distance}",
-                        f"Angle: {angle:.1f} deg"
-                    ]
+                # Calculate center, distance from frame center, and angle
+                center, distance, angle = calculate_center_and_angle(contour)
+                
+                if center is not None:
+                    # Draw center point
+                    cv2.circle(frame, center, 5, colors.get(class_idx, (255, 0, 0)), -1)
                     
-                    for j, text in enumerate(text_lines):
-                        y_pos = 30 + j * 30
-                        cv2.putText(frame, text, (10, y_pos), font, 0.7, colors.get(class_idx, (255, 0, 0)), 2)
+                    # Draw line from frame center to object center
+                    cv2.line(frame, frame_center, center, colors.get(class_idx, (255, 0, 0)), 2)
+                    
+                    # We've already drawn text if we had a bounding box, so only draw if we didn't
+                    if not box:
+                        text_lines = [
+                            f"Class: {class_names.get(class_idx, 'Unknown')} ({confidence:.2f})",
+                            f"Center: {center}",
+                            f"Dist from center: {distance}",
+                            f"Angle: {angle:.1f} deg"
+                        ]
+                        
+                        for j, text in enumerate(text_lines):
+                            y_pos = 30 + j * 30
+                            cv2.putText(frame, text, (10, y_pos), font, 0.7, colors.get(class_idx, (255, 0, 0)), 2)
     
     return frame
 
