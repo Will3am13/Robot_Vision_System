@@ -674,7 +674,7 @@ def main():
                 cv2.imshow("Battery Sorting System", frame)
             else:
                 # Display a blank frame or a "Vision Off" message
-                blank_frame = np.zeros((800, 1280, 3), dtype=np.uint8, dtype=np.uint8)
+                blank_frame = np.zeros((800, 1280, 3), dtype=np.uint8)
                 cv2.putText(blank_frame, "VISION PROCESSING DISABLED", (100, 400),
                             cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 255), 3)
                 cv2.imshow("Battery Sorting System", blank_frame)
