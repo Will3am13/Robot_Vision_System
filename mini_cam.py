@@ -73,95 +73,102 @@ def process_api_results(api_results, frame):
     }
     
     # Check if results are available
-    if not api_results.get('images') or len(api_results['images']) == 0:
+    if 'images' not in api_results or len(api_results['images']) == 0:
         return frame
     
     # Get the first image results
     image_results = api_results['images'][0]
     
     # Process each detection
-    for result in image_results.get('results', []):
-        class_idx = result.get('class', 0)
-        confidence = result.get('confidence', 1.0)
-        
-        # Process bounding box
-        box = result.get('box')
-        if box:
-            x1, y1, x2, y2 = box.get('x1', 0), box.get('y1', 0), box.get('x2', 0), box.get('y2', 0)
+    if 'results' in image_results:
+        for result in image_results['results']:
+            # Get class and confidence
+            class_idx = result['class'] if 'class' in result else 0
+            confidence = result['confidence'] if 'confidence' in result else 1.0
             
-            # Calculate center
-            center_x = (x1 + x2) // 2
-            center_y = (y1 + y2) // 2
-            center = (center_x, center_y)
-            
-            # Calculate distance from frame center
-            distance_x = center_x - frame_center[0]
-            distance_y = center_y - frame_center[1]
-            distance = (distance_x, distance_y)
-            
-            # Calculate angle - for boxes, we'll use width/height ratio to approximate
-            width = x2 - x1
-            height = y2 - y1
-            angle = 0 if width >= height else 90  # Rough approximation
-            
-            # Draw bounding box
-            cv2.rectangle(frame, (x1, y1), (x2, y2), colors.get(class_idx, (255, 0, 0)), 2)
-            
-            # Draw center point
-            cv2.circle(frame, center, 5, colors.get(class_idx, (255, 0, 0)), -1)
-            
-            # Draw line from frame center to object center
-            cv2.line(frame, frame_center, center, colors.get(class_idx, (255, 0, 0)), 2)
-            
-            # Put text information
-            text_lines = [
-                f"Class: {class_names.get(class_idx, 'Unknown')} ({confidence:.2f})",
-                f"Center: {center}",
-                f"Dist from center: {distance}",
-                f"Angle: {angle} deg"
-            ]
-            
-            for j, text in enumerate(text_lines):
-                y_pos = 30 + j * 30
-                cv2.putText(frame, text, (10, y_pos), font, 0.7, colors.get(class_idx, (255, 0, 0)), 2)
-        
-        # Process segmentation if available
-        segments = result.get('segments')
-        if segments:
-            # Check if segments contains x and y arrays
-            x_coords = segments.get('x')
-            y_coords = segments.get('y')
-            
-            if x_coords and y_coords and len(x_coords) == len(y_coords):
-                # Create contour from x, y coordinates
-                pts = np.array(list(zip(x_coords, y_coords)), dtype=np.int32)
-                contour = pts.reshape((-1, 1, 2))
+            # Process bounding box
+            if 'box' in result:
+                box = result['box']
+                x1 = box['x1'] if 'x1' in box else 0
+                y1 = box['y1'] if 'y1' in box else 0
+                x2 = box['x2'] if 'x2' in box else 0
+                y2 = box['y2'] if 'y2' in box else 0
                 
-                # Draw the contour
-                cv2.drawContours(frame, [contour], -1, colors.get(class_idx, (255, 0, 0)), 2)
+                # Calculate center
+                center_x = (x1 + x2) // 2
+                center_y = (y1 + y2) // 2
+                center = (center_x, center_y)
                 
-                # Calculate center, distance from frame center, and angle
-                center, distance, angle = calculate_center_and_angle(contour)
+                # Calculate distance from frame center
+                distance_x = center_x - frame_center[0]
+                distance_y = center_y - frame_center[1]
+                distance = (distance_x, distance_y)
                 
-                if center is not None:
-                    # Draw center point
-                    cv2.circle(frame, center, 5, colors.get(class_idx, (255, 0, 0)), -1)
+                # Calculate angle - for boxes, we'll use width/height ratio to approximate
+                width = x2 - x1
+                height = y2 - y1
+                angle = 0 if width >= height else 90  # Rough approximation
+                
+                # Draw bounding box
+                cv2.rectangle(frame, (x1, y1), (x2, y2), colors.get(class_idx, (255, 0, 0)), 2)
+                
+                # Draw center point
+                cv2.circle(frame, center, 5, colors.get(class_idx, (255, 0, 0)), -1)
+                
+                # Draw line from frame center to object center
+                cv2.line(frame, frame_center, center, colors.get(class_idx, (255, 0, 0)), 2)
+                
+                # Put text information
+                text_lines = [
+                    f"Class: {class_names.get(class_idx, 'Unknown')} ({confidence:.2f})",
+                    f"Center: {center}",
+                    f"Dist from center: {distance}",
+                    f"Angle: {angle} deg"
+                ]
+                
+                for j, text in enumerate(text_lines):
+                    y_pos = 30 + j * 30
+                    cv2.putText(frame, text, (10, y_pos), font, 0.7, colors.get(class_idx, (255, 0, 0)), 2)
+            
+            # Process segmentation if available
+            if 'segments' in result:
+                segments = result['segments']
+                
+                # Check if segments contains x and y arrays
+                if 'x' in segments and 'y' in segments:
+                    x_coords = segments['x']
+                    y_coords = segments['y']
                     
-                    # Draw line from frame center to object center
-                    cv2.line(frame, frame_center, center, colors.get(class_idx, (255, 0, 0)), 2)
-                    
-                    # We've already drawn text if we had a bounding box, so only draw if we didn't
-                    if not box:
-                        text_lines = [
-                            f"Class: {class_names.get(class_idx, 'Unknown')} ({confidence:.2f})",
-                            f"Center: {center}",
-                            f"Dist from center: {distance}",
-                            f"Angle: {angle:.1f} deg"
-                        ]
+                    if len(x_coords) == len(y_coords) and len(x_coords) > 0:
+                        # Create contour from x, y coordinates
+                        pts = np.array(list(zip(x_coords, y_coords)), dtype=np.int32)
+                        contour = pts.reshape((-1, 1, 2))
                         
-                        for j, text in enumerate(text_lines):
-                            y_pos = 30 + j * 30
-                            cv2.putText(frame, text, (10, y_pos), font, 0.7, colors.get(class_idx, (255, 0, 0)), 2)
+                        # Draw the contour
+                        cv2.drawContours(frame, [contour], -1, colors.get(class_idx, (255, 0, 0)), 2)
+                        
+                        # Calculate center, distance from frame center, and angle
+                        center, distance, angle = calculate_center_and_angle(contour)
+                        
+                        if center is not None:
+                            # Draw center point
+                            cv2.circle(frame, center, 5, colors.get(class_idx, (255, 0, 0)), -1)
+                            
+                            # Draw line from frame center to object center
+                            cv2.line(frame, frame_center, center, colors.get(class_idx, (255, 0, 0)), 2)
+                            
+                            # If we've already drawn text for the bounding box, don't draw again
+                            if 'box' not in result:
+                                text_lines = [
+                                    f"Class: {class_names.get(class_idx, 'Unknown')} ({confidence:.2f})",
+                                    f"Center: {center}",
+                                    f"Dist from center: {distance}",
+                                    f"Angle: {angle:.1f} deg"
+                                ]
+                                
+                                for j, text in enumerate(text_lines):
+                                    y_pos = 30 + j * 30
+                                    cv2.putText(frame, text, (10, y_pos), font, 0.7, colors.get(class_idx, (255, 0, 0)), 2)
     
     return frame
 
