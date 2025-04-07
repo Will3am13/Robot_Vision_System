@@ -346,7 +346,7 @@ def setup_vision_pipeline():
     # Link nodes
     camRgb.video.link(script.inputs['video_in'])
     script.outputs['nn_in'].link(spatialDetectionNetwork.input)
-    script.inputs['control'].link(control_in.out)
+    control_in.out.link(script.inputs['control']) # Corrected line
     script.outputs['status'].link(control_out.input)
 
     camRgb.video.link(xoutVideo.input)
@@ -357,7 +357,6 @@ def setup_vision_pipeline():
     spatialDetectionNetwork.out.link(xoutNN.input)
 
     return pipeline
-
 
 def initialize_robot():
     """Initialize and test the robot arm"""
