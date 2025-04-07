@@ -263,7 +263,7 @@ def is_valid_coord(coord):
         print(f"Out of range in roll: {rx}")
         return False
     if not (-180 <= ry <= 180):  # ry range
-        print(f"Out of range in pitch: ry}")
+        print(f"Out of range in pitch: {ry}")
         return False
     if not (-180 <= rz <= 180):  # rz range
         print(f"Out of range in yaw: {rz}")
