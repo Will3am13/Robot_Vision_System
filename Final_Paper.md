@@ -427,13 +427,13 @@ The system was designed using a process of functional decomposition on multiple 
 
 
 
-*Figure 3: Level Zero System (placeholder image)*
+*Figure 3: Level Zero System*
 
 The level one functional design breaks the level zero design into subsystems. For this project, the subsystems are defined as the vision system and the robotic system. Although both subsystems function independently, accurate data from the vision subsystem is essential for the robotic subsystem's performance. The overall state diagram for the project is shown in Figure 4.
 
-![Level One Camera System Functionality](https://i.imgur.com/example5.png)
+![Level One Camera System Functionality](https://i.imgur.com/zx3VA0d_d.png?maxwidth=520&shape=thumb&fidelity=high)
 
-*Figure 4: Level One Camera System Functionality (placeholder image)*
+*Figure 4: Level One Camera System Functionality*
 
 To further decompose the system and necessary components, we need to look at the individual subsystems.
 
