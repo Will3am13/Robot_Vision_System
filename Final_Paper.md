@@ -122,9 +122,26 @@ Key challenges include:
 
 ## Proposed Solution
 
+### Intial Study of Possible Solutions
+
+Many factors were considered when determining the specific components of the proposed solution. To aid in this decision, a concept table, Table 1, was employed to help identify potential methods for achieving a robotic vision system.
+
+**Table 1: Concept Generation Table**
+
+| **Sensing** | **Algorithim** | **Application** |
+|--------------|------------|---------------------|
+| LiDAR | Color Detection  | Navigation |
+| Stereoscopic | Machine Learning | Sorting | 
+| Multi-Camera | Object Localization | Recognition |
+
+![Concept Fan](https://i.imgur.com/LBzc7fK_d.png?maxwidth=520&shape=thumb&fidelity=high)
+### Figure 2: Concept Fan
+
+These various concepts were then expounded on as a Concept Fan as shown in Figure 1.
+
 ### Decision Making Methodology
 
-We developed a systematic approach to identify optimal components for a robotic vision system that fulfills customer requirements for safety, real-time performance, cost-effectiveness, accurate object localization, and precise robotic manipulation. Using structured decision matrices, we evaluated various technologies against weighted criteria derived directly from these requirements.
+After exploring many alreanatives to develop the system we developed a systematic approach to identify optimal components for a robotic vision system that fulfills customer requirements for safety, real-time performance, cost-effectiveness, accurate object localization, and precise robotic manipulation. Using structured decision matrices, we evaluated various technologies against weighted criteria derived directly from these requirements.
 
 #### Initial Concept Generation
 
@@ -423,7 +440,7 @@ Future scalability considerations, such as additional sensors or integration wit
 
 The system was designed using a process of functional decomposition on multiple levels to determine the necessary input and output parameters for each subsystem. At the most basic level (Level Zero), the system processes video data and depth measurements as inputs. It will then output the robot path to sort object(s). This is detailed in Figure 3. The core processes revolve around handling the input data from the OAK-D-SR camera, and translating that into object classification and localization as well as a path to the object.
 
-![Level Zero System](https://i.imgur.com/zx3VA0d_d.png?maxwidth=520&shape=thumb&fidelity=high)
+![Level Zero System](https://i.imgur.com/YOf8hid_d.png?maxwidth=520&shape=thumb&fidelity=high)
 
 
 
