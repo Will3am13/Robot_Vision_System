@@ -381,7 +381,7 @@ These matrices reveal tensions between performance and cost that shaped our proj
 The matrices suggest that improvements in performance metrics yield diminishing returns as cost increases. This informed our decision to target the "sweet spot" where performance meets acceptable thresholds without excessive cost. The strong relationship between processing capabilities and accuracy guided our architectural approach of distributing processing tasks across multiple components rather than centralizing them.
 
 ## House of Quality
-[Placeholder for House of Quality diagram]
+![House of Quality diagram](https://i.imgur.com/Ua0oKzE_d.png?maxwidth=520&shape=thumb&fidelity=high)
 ### Figure 2: House of Quality
 
 The House of Quality analysis identified Sensor Accuracy and Vision Processing as the highest priorities, followed by Speed, with Cost and Range as lower priorities.
@@ -423,7 +423,7 @@ Future scalability considerations, such as additional sensors or integration wit
 
 The system was designed using a process of functional decomposition on multiple levels to determine the necessary input and output parameters for each subsystem. At the most basic level (Level Zero), the system processes video data and depth measurements as inputs. It will then output the robot path to sort object(s). This is detailed in Figure 3. The core processes revolve around handling the input data from the OAK-D-SR camera, and translating that into object classification and localization as well as a path to the object.
 
-![Level Zero System](https://i.imgur.com/p6LBVVL_d.png?maxwidth=520&shape=thumb&fidelity=high)
+![Level Zero System](https://i.imgur.com/zx3VA0d_d.png?maxwidth=520&shape=thumb&fidelity=high)
 
 
 
@@ -431,15 +431,15 @@ The system was designed using a process of functional decomposition on multiple 
 
 The level one functional design breaks the level zero design into subsystems. For this project, the subsystems are defined as the vision system and the robotic system. Although both subsystems function independently, accurate data from the vision subsystem is essential for the robotic subsystem's performance. The overall state diagram for the project is shown in Figure 4.
 
-![Level One Camera System Functionality](https://i.imgur.com/zx3VA0d_d.png?maxwidth=520&shape=thumb&fidelity=high)
+![Level One Camera System Functionality](https://i.imgur.com/JJ09FKW_d.png?maxwidth=520&shape=thumb&fidelity=high)
 
 *Figure 4: Level One Camera System Functionality*
 
 To further decompose the system and necessary components, we need to look at the individual subsystems.
 
-![Flowchart for Robotic Vision System](https://i.imgur.com/example4.png)
+![Flowchart for Robotic Vision System](https://i.imgur.com/7MZlCTH_d.png?maxwidth=520&shape=thumb&fidelity=high)
 
-*Figure 5: Flowchart for Robotic Vision System (placeholder image)*
+*Figure 5: Flowchart for Robotic Vision System*
 
 Figure 5 shows the flowchart of components required to achieve a successful vision system. Within the flowchart of the vision system, various algorithms are defined, such as object detection and classification algorithms. Within the robotic subsystem, an inverse kinematic algorithm and a sorting path algorithm are needed as well.
 
