@@ -10,6 +10,12 @@ from sklearn.linear_model import Ridge
 from sklearn.metrics import mean_squared_error
 import math
 
+# Import the mini_cam_controller to get camera offsets
+from mini_cam_controller import get_camera_offsets
+
+# Colab server configuration
+COLAB_NGROK_URL = ""  # Set this to your ngrok URL
+
 # Define a standby (home) position
 STANDBY_COORDS = [111.7, -53.4, 251.2, 172.67, -9.25, 46.06]
 STANDBY_ANGLES = [0.52, 23.9, -75.93, -18.45, 0.08, -131.48]
@@ -195,7 +201,8 @@ def update_settings_based_on_distance(distance):
         result['message'] = f"Using short range settings (distance: {distance:.1f}mm)"
         result['range'] = "short_range"
 
-    elif DISTANCE_SETTINGS["normal_range"]["min_distance"] <= distance <= DISTANCE_SETTINGS["normal_range"]["max_distance"]:
+    elif DISTANCE_SETTINGS["normal_range"]["min_distance"] <= distance <= DISTANCE_SETTINGS["normal_range"][
+        "max_distance"]:
         # Normal range settings
         PICK_ORIENTATION = DISTANCE_SETTINGS["normal_range"]["pick_orientation"]
         X_OFFSET, Y_OFFSET, Z_OFFSET = DISTANCE_SETTINGS["normal_range"]["offsets"]
@@ -226,7 +233,7 @@ def transform_point(cam_point):
 
     # Store the original coordinates before applying any offsets
     original_coords = result[0].copy()
-   
+
     # Calculate distance from origin in XY plane BEFORE applying any offsets
     distance = calculate_xy_distance(original_coords[0], original_coords[1])
 
@@ -372,7 +379,7 @@ def pick_and_place_battery(mc, camera_coords, is_cbattery=False):
     # Transform camera coordinates to robot coordinates with distance-based settings
     # Now also get the original distance directly from the transform_point function
     robot_xyz, settings, original_distance = transform_point(camera_coords)
-   
+
     # Print information about the coordinates and settings
     print(f"Camera coordinates: {camera_coords}")
     print(f"Transformed robot coordinates: {robot_xyz}")
@@ -409,6 +416,43 @@ def pick_and_place_battery(mc, camera_coords, is_cbattery=False):
     mc.send_coords(hover_coords, 30, 1)
     time.sleep(2)
 
+    # NEW ADDITION: Get fine adjustments from Colab camera server
+    if COLAB_NGROK_URL:
+        try:
+            print("Getting fine position adjustments from camera server...")
+            cam_offsets = get_camera_offsets(COLAB_NGROK_URL, timeout=15)
+
+            if cam_offsets:
+                # Apply the fine adjustments to the pick coordinates
+                adjusted_x = robot_xyz[0] + cam_offsets['small_x']
+                adjusted_y = robot_xyz[1] + cam_offsets['small_y']
+                adjusted_rz = PICK_ORIENTATION[2] + cam_offsets['small_angle']
+
+                # Keep z and other orientation values the same
+                adjusted_pick_coords = [
+                    adjusted_x,
+                    adjusted_y,
+                    robot_xyz[2],
+                    PICK_ORIENTATION[0],
+                    PICK_ORIENTATION[1],
+                    adjusted_rz
+                ]
+
+                print(f"Original pick coordinates: {pick_coords}")
+                print(f"Camera-adjusted pick coordinates: {adjusted_pick_coords}")
+
+                # Validate the adjusted coordinates are within robot's working range
+                if is_valid_coord(adjusted_pick_coords):
+                    pick_coords = adjusted_pick_coords
+                    print("Using camera-adjusted pick coordinates")
+                else:
+                    print("Camera-adjusted coordinates out of range, using original coordinates")
+            else:
+                print("Failed to get camera offsets, proceeding with original coordinates")
+        except Exception as e:
+            print(f"Error getting camera offsets: {e}")
+            print("Proceeding with original coordinates")
+
     # STEP 2: Move down to the actual target position
     print(f"Moving down to pick battery at: {pick_coords}")
     mc.send_coords(pick_coords, 20, 1)  # Slower speed for precision
@@ -443,6 +487,16 @@ def pick_and_place_battery(mc, camera_coords, is_cbattery=False):
 
 
 def main():
+    # Check for ngrok URL
+    global COLAB_NGROK_URL
+    if not COLAB_NGROK_URL:
+        url_input = input("Enter the Colab ngrok URL (leave empty to skip camera assistance): ")
+        if url_input.strip():
+            COLAB_NGROK_URL = url_input.strip()
+            print(f"Camera assistance enabled with URL: {COLAB_NGROK_URL}")
+        else:
+            print("Camera assistance disabled")
+
     # Initialize robot
     mc = initialize_robot()
 
@@ -486,6 +540,11 @@ def main():
         print(f"Minimum Z values: Short range: {DISTANCE_SETTINGS['short_range']['min_z']}mm, " +
               f"Normal range: {DISTANCE_SETTINGS['normal_range']['min_z']}mm, " +
               f"Long range: {DISTANCE_SETTINGS['long_range']['min_z']}mm")
+
+        if COLAB_NGROK_URL:
+            print(f"Camera assistance enabled with URL: {COLAB_NGROK_URL}")
+        else:
+            print("Camera assistance disabled")
 
         # Tracking variables
         last_processed_time = 0
@@ -547,7 +606,7 @@ def main():
                 # Transform camera coordinates to robot coordinates to estimate distance
                 # Update to handle the new return value (original_distance) from transform_point
                 robot_xyz, settings, original_distance = transform_point([x, y, z])
-                
+
                 # Use the original_distance directly instead of recalculating it
                 distance = original_distance
 
@@ -630,6 +689,14 @@ def main():
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, class_settings[class_name]["color"], 1)
                     y_pos += 20
                     count += 1
+
+            # Display camera assistance status
+            if COLAB_NGROK_URL:
+                cv2.putText(frame, "Camera assistance: ENABLED", (10, y_pos + 20),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+            else:
+                cv2.putText(frame, "Camera assistance: DISABLED", (10, y_pos + 20),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
 
             # Clean up old objects (not seen for more than 10 seconds)
             current_time = time.time()
