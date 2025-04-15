@@ -454,7 +454,7 @@ The level one functional design breaks the level zero design into subsystems. Fo
 
 To further decompose the system and necessary components, we need to look at the individual subsystems.
 
-![Flowchart for Robotic Vision System](https://i.imgur.com/7MZlCTH_d.png?maxwidth=520&shape=thumb&fidelity=high)
+![Flowchart for Robotic Vision System](https://i.imgur.com/Yv3Zxz4_d.png?maxwidth=520&shape=thumb&fidelity=high)
 
 *Figure 5: Flowchart for Robotic Vision System*
 
