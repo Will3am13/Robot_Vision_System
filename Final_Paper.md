@@ -617,7 +617,7 @@ The system implementation utilizes a Raspberry Pi 4 as the central controller, c
 
    When objects are close to the robot base, the gripper must sweep inward with orientation [-142, 30, 59] and offsets [75, 10, -20]. This inward angle prevents the robot joints from colliding with each other in the confined space near the base.
 
-   ![Short-range orientation](https://i.imgur.com/gqmtF9H.jpeg)
+   ![Short-range orientation](https://imgur.com/gqmtF9H)
    
    *Figure 1: Short-range gripper orientation for objects at 130-140mm from robot base*
 
