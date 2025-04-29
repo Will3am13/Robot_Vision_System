@@ -617,19 +617,19 @@ The system implementation utilizes a Raspberry Pi 4 as the central controller, c
 
    When objects are close to the robot base, the gripper must sweep inward with orientation [-142, 30, 59] and offsets [75, 10, -20]. This inward angle prevents the robot joints from colliding with each other in the confined space near the base.
 
-   ![Short-range orientation](https://imgur.com/a/short-range-xItKpsx)
+   ![Short-range orientation](https://i.imgur.com/gqmtF9H.jpeg)
    
    *Figure 1: Short-range gripper orientation for objects at 130-140mm from robot base*
 
    For objects at medium distance, the gripper can approach directly with orientation [180, 0, 45] and offsets [0, 5, 0]. This neutral position provides optimal grasping for most objects in the robot's primary workspace.
 
-   ![Normal-range orientation](https://imgur.com/a/w4oiDlA)
+   ![Normal-range orientation](https://i.imgur.com/vRRCsiT_d.jpeg?maxwidth=520&shape=thumb&fidelity=high)
    
    *Figure 2: Normal-range gripper orientation for objects at 140-280mm from robot base*
 
    When objects are at the far reach of the arm, the gripper must sweep outward with orientation [150, -24, 50] and offsets [-75, 10, -20]. This extension angle allows the robot to properly reach and grasp objects at the limits of its workspace.
 
-   ![Long-range orientation](https://imgur.com/a/long-range-cqEbaLx)
+   ![Long-range orientation](https://i.imgur.com/Qnbqy1L_d.jpeg?maxwidth=520&shape=thumb&fidelity=high)
    
    *Figure 3: Long-range gripper orientation for objects at 280-300mm from robot base*
 
