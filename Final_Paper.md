@@ -675,7 +675,7 @@ The migration from Time-of-Flight to stereoscopic technology required substantia
 
 The robotic manipulation system demonstrates precise adaptive control through our variable-range sorting implementation. In tests matching RUT-01 criteria, the system achieved 97.1% successful pickup rate for batteries in normal orientation, and 84.3% for batteries at arbitrary angles, surpassing our orientation detection target of 85%. Position accuracy was measured at ±0.41mm, within our expected ±0.5mm specification.
 
-Table 19: Summary of key test results against acceptance criteria
+**Table 19: Summary of key test results against acceptance criteria**
 | Test parameter                | Requirement            | Result (mean ± Δ) | Verdict |
 |-------------------------------|------------------------|-------------------|---------|
 | **Processing time**           | < 200 ms / frame       | 200 ms ± 15 ms    | PASS    |
@@ -692,7 +692,7 @@ The distance-based zone system demonstrated significant improvements in reach ca
 
 ### Material Purchase Plan and Costs
 
-Table 20 – Complete Design Cost 
+**Table 20 – Complete Design Cost**
 | **Item** | **Quantity** | **Unit Cost** | **Total Cost** |
 |----------|--------------|---------------|----------------|
 | Luxonis OAK-D-SR Camera (with integrated SoC) | 1 | $249 | $249 |
