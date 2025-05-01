@@ -135,7 +135,7 @@ Many factors were considered when determining the specific components of the pro
 | Multi-Camera | Object Localization | Recognition |
 
 ![Concept Fan](https://i.imgur.com/LBzc7fK_d.png?maxwidth=520&shape=thumb&fidelity=high)
-### Figure 2: Concept Fan
+### Figure 1: Concept Fan
 
 These various concepts were then expounded on as a Concept Fan as shown in Figure 1.
 
@@ -185,7 +185,7 @@ These components were then evaluated individually to determine the optimal confi
 
 The customer requirement for "accurate object localization" demands a sensing technology capable of precise depth measurement in dynamic environments. To select an optimal camera, we evaluated three primary sensing technologies, steroscopic, Time-of-Flight, and LiDAR. The pairwise comparison matrix below assigns weights to each criterion, with accuracy (weight: 0.42) and range (weight: 0.28) prioritized given our need for reliable depth perception in varied lighting conditions.
 
-**Table 2: Pairwise Comparison Matrix for Sensing Unit**
+**Table 3: Pairwise Comparison Matrix for Sensing Unit**
 
 | | **Accuracy** | **Cost** | **Range** | **Processing** | **Weights** |
 |---|---|---|---|---|---|
@@ -196,7 +196,7 @@ The customer requirement for "accurate object localization" demands a sensing te
 
 Using these weights, we evaluated three sensing units availiabe to market in Table 3.
 
-**Table 3: Decision Matrix for Sensing Unit**
+**Table 4: Decision Matrix for Sensing Unit**
 
 | **Criteria** | **Weight** | **Intel LiDAR** | **OAK-D-SR** | **OAK-D-ToF** |
 |--------------|------------|-----------------|--------------|---------------|
@@ -208,7 +208,7 @@ Using these weights, we evaluated three sensing units availiabe to market in Tab
 
 We also analyzed the strengths and weaknesses of different vision technologies to further inform our decision.
 
-**Table 4: Strengths and Weaknesses Analysis of Vision Technologies**
+**Table 5: Strengths and Weaknesses Analysis of Vision Technologies**
 
 | **Method** | **Strengths** | **Weaknesses** |
 |------------|---------------|----------------|
@@ -221,7 +221,7 @@ While the OAK-D-ToF initially emerged as promising for its advanced depth-sensin
 
 For the system's processing capabilities, we evaluated four criteria: speed, power consumption, cost, and flexibility, with assigned weights shown in Table 5.
 
-**Table 5: Pairwise Comparison Matrix for Processing Unit**
+**Table 6: Pairwise Comparison Matrix for Processing Unit**
 
 | | **Speed** | **Power** | **Cost** | **Flexibility** | **Weights** |
 |---|---|---|---|---|---|
@@ -232,7 +232,7 @@ For the system's processing capabilities, we evaluated four criteria: speed, pow
 
 Using these weights, we evaluated four processing options in Table 6.
 
-**Table 6: Decision Matrix for Processing Unit**
+**Table 7: Decision Matrix for Processing Unit**
 
 | **Criteria** | **Weight** | **GPU** | **CPU** | **FPGA** | **SoC** |
 |--------------|------------|---------|---------|----------|---------|
@@ -248,7 +248,7 @@ Following the results of the decision matrix, the SoC was selected to be the pro
 
 To determine the optimal system controller for integrating our chosen components, we evaluated several single-board computer options based on key criteria relevant to our application.
 
-**Table 7: Pairwise Comparison Matrix for System Controller**
+**Table 8: Pairwise Comparison Matrix for System Controller**
 
 | | **Processing Power** | **Cost** | **I/O Options** | **Community Support** | **Weights** |
 |---|---|---|---|---|---|
@@ -257,7 +257,7 @@ To determine the optimal system controller for integrating our chosen components
 | **I/O Options** | 0.5 | 2 | 1 | 3 | 0.27 |
 | **Community Support** | 0.25 | 0.5 | 0.33 | 1 | 0.10 |
 
-**Table 8: Decision Matrix for System Controller**
+**Table 9: Decision Matrix for System Controller**
 
 | **Criteria** | **Weight** | **Raspberry Pi 4** | **Jetson Nano** | **BeagleBone Black** | **Intel NUC** |
 |--------------|------------|-----------------|-------------|--------------|---------|
@@ -273,7 +273,7 @@ Based on this analysis, the Raspberry Pi 4 emerged as the optimal system control
 
 To identify the optimal algorithms for our vision system, we conducted a pairwise comparison of critical criteria shown in Table 9.
 
-**Table 9: Pairwise Comparison Matrix for AI Algorithm Selection**
+**Table 10: Pairwise Comparison Matrix for AI Algorithm Selection**
 
 | | **Speed** | **Comp.** | **Scal.** | **Integ.** | **Weights** |
 |---|---|---|---|---|---|
@@ -284,7 +284,7 @@ To identify the optimal algorithms for our vision system, we conducted a pairwis
 
 Using these weights, we evaluated four primary algorithms in Table 10.
 
-**Table 10: Decision Matrix for AI Algorithms**
+**Table 11: Decision Matrix for AI Algorithms**
 
 | **Criteria** | **Weight** | **Detection** | **Classification** | **Anomaly Detection** | **Motion Tracking** |
 |--------------|------------|---------------|--------------------|-----------------------|---------------------|
@@ -300,7 +300,7 @@ Object detection scored highest overall due to its processing speed and scalabil
 
 We evaluated three 6-axis robotic arms against criteria essential for our application, as shown in Table 11.
 
-**Table 11: Robotic Arm Comparison**
+**Table 12: Robotic Arm Comparison**
 
 | **Criteria** | **Weight** | **MyCobot 280** | **uFactory xArm 5** | **Dobot Magician** |
 |--------------|------------|-----------------|---------------------|-------------------|
@@ -317,7 +317,7 @@ The MyCobot 280 emerged as the winner with the highest overall score of 8.45. Wh
 
 Following our component selection process, we performed a final evaluation of potential system configurations using a Pugh Concept Selection Matrix, with the OAK-D-SR as our reference baseline.
 
-**Table 12: Pugh Concept Selection Matrix**
+**Table 13: Pugh Concept Selection Matrix**
 
 | | **Weight** | **OAK-D-SR (Reference)** | **OAK-D-ToF** | **Raspberry Pi + USB Camera** | **Intel L515 + Desktop PC** |
 |---|---|---|---|---|---|
@@ -354,7 +354,7 @@ The final system is optimized for quality assurance in identifying 9-V batteries
 
 Our project develops a real-time robotic vision system using the OAK-D-SR stereoscopic camera with an integrated SoC and MyCobot 280 robotic arm with adaptive gripper. This configuration has a total cost of $1,200 while satisfying functional and technical requirements.
 
-## Table 10: System and Marketing Requirements
+## Table 14: System and Marketing Requirements
 
 | Marketing Requirements | Engineering Requirements | Justification |
 |---|---|---|
@@ -374,7 +374,7 @@ Our project develops a real-time robotic vision system using the OAK-D-SR stereo
 
 The Trade-off Matrix demonstrates how improving sensor accuracy (+) increases costs (-), creating direct performance-budget tradeoffs. The tables show interactions between hardware latency, vision processing, and sensor accuracy, illustrating optimization constraints.
 
-### Table 11: Engineering-Marketing Trade-off Matrix
+### Table 15: Engineering-Marketing Trade-off Matrix
 
 | | Range (+) | Latency (-) | Accuracy (+) | Processing (+) | Cost (-) |
 |---|---|---|---|---|---|
@@ -385,7 +385,7 @@ The Trade-off Matrix demonstrates how improving sensor accuracy (+) increases co
 
 These matrices reveal tensions between performance and cost that shaped our project approach. Improvements in accuracy require more sophisticated sensors and processing capabilities, directly increasing system cost. This illustrates why high-performance vision systems command premium prices and highlights our challenge of delivering acceptable performance at accessible prices. The interdependence of parameters shown in Table 12 required a holistic system design rather than component-by-component optimization.
 
-### Table 12: Engineering Trade-off Matrix
+### Table 16: Engineering Trade-off Matrix
 
 | | Range (+) | Latency (-) | Accuracy (+) | Processing (+) | Cost (-) |
 |---|---|---|---|---|---|
@@ -418,7 +418,7 @@ The project cost includes essential components: Luxonis OAK-D-SR camera, MyCobot
 
 Our benchmarking revealed a gap between high-end commercial systems ($5,000-$10,000+) and the educational/small business market segment. Our $1,200 solution targets this underserved segment, delivering sufficient performance for most educational and light industrial applications. Unlike closed commercial systems, our modular approach offers customization potential, allowing users to adapt the system to specific use cases and incrementally enhance capabilities through software updates or module additions.
 
-**Table 13: Project Cost Table**
+**Table 17: Project Cost Table**
 
 | **Item** | **Quantity** | **Unit Cost** | **Total Cost** |
 |----------|--------------|---------------|----------------|
@@ -441,8 +441,6 @@ Future scalability considerations, such as additional sensors or integration wit
 The system was designed using a process of functional decomposition on multiple levels to determine the necessary input and output parameters for each subsystem. At the most basic level (Level Zero), the system processes video data and depth measurements as inputs. It will then output the robot path to sort object(s). This is detailed in Figure 3. The core processes revolve around handling the input data from the OAK-D-SR camera, and translating that into object classification and localization as well as a path to the object.
 
 ![Level Zero System](https://i.imgur.com/YOf8hid_d.png?maxwidth=520&shape=thumb&fidelity=high)
-
-
 
 *Figure 3: Level Zero System*
 
@@ -619,25 +617,25 @@ The system implementation utilizes a Raspberry Pi 4 as the central controller, c
 
    ![Short-range orientation](https://i.imgur.com/gqmtF9H_d.jpeg?maxwidth=520&shape=thumb&fidelity=high)
    
-   *Figure 1: Short-range gripper orientation for objects at 130-140mm from robot base*
+   *Figure 6: Short-range gripper orientation for objects at 130-140mm from robot base*
 
    For objects at medium distance, the gripper can approach directly with orientation [180, 0, 45] and offsets [0, 5, 0]. This neutral position provides optimal grasping for most objects in the robot's primary workspace.
 
    ![Normal-range orientation](https://i.imgur.com/vRRCsiT_d.jpeg?maxwidth=520&shape=thumb&fidelity=high)
    
-   *Figure 2: Normal-range gripper orientation for objects at 140-280mm from robot base*
+   *Figure 7: Normal-range gripper orientation for objects at 140-280mm from robot base*
 
    When objects are at the far reach of the arm, the gripper must sweep outward with orientation [150, -24, 50] and offsets [-75, 10, -20]. This extension angle allows the robot to properly reach and grasp objects at the limits of its workspace.
 
    ![Long-range orientation](https://i.imgur.com/Qnbqy1L_d.jpeg?maxwidth=520&shape=thumb&fidelity=high)
    
-   *Figure 3: Long-range gripper orientation for objects at 280-300mm from robot base*
+   *Figure 8: Long-range gripper orientation for objects at 280-300mm from robot base*
 
    Objects too close (<130mm) or too far (>300mm) are flagged as unreachable, as they would require extreme joint configurations that could risk collisions or exceed the robot's mechanical limits.
 
    ![Range diagram showing all zones](https://i.imgur.com/3sdXB5P_d.png?maxwidth=520&shape=thumb&fidelity=high)
    
-   *Figure 4: Workspace range zones showing short, normal, and long-range operational areas*
+   *Figure 9: Workspace range zones showing short, normal, and long-range operational areas*
 
 4. **Z-Depth Averaging**: To ensure stability, the system maintains a history of depth measurements for each detected object across multiple frames (up to 50 samples), using the averaged Z-value for more reliable positioning.
 
@@ -673,11 +671,11 @@ The migration from Time-of-Flight to stereoscopic technology required substantia
 
 ![Detection Accuracy Results](https://i.imgur.com/placeholder1.png)
 
-*Figure X: Detection accuracy comparison between standard and corroded batteries*
+*Figure 10: Detection accuracy comparison between standard and corroded batteries*
 
 The robotic manipulation system demonstrates precise adaptive control through our variable-range sorting implementation. In tests matching RUT-01 criteria, the system achieved 97.1% successful pickup rate for batteries in normal orientation, and 84.3% for batteries at arbitrary angles, surpassing our orientation detection target of 85%. Position accuracy was measured at ±0.41mm, within our expected ±0.5mm specification.
 
-Table X – Detection accuracy and performance results  
+Table 18 – Detection accuracy and performance results  
 | Test parameter                | Requirement            | Result (mean ± Δ) | Verdict |
 |-------------------------------|------------------------|-------------------|---------|
 | **Processing time**           | < 200 ms / frame       | 200 ms ± 15 ms    | PASS    |
@@ -696,6 +694,7 @@ The distance-based zone system demonstrated significant improvements in reach ca
 
 ### Material Purchase Plan and Costs
 
+Table 19 – Complete Design Cost 
 | **Item** | **Quantity** | **Unit Cost** | **Total Cost** |
 |----------|--------------|---------------|----------------|
 | Luxonis OAK-D-SR Camera (with integrated SoC) | 1 | $249 | $249 |
