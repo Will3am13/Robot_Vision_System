@@ -635,7 +635,7 @@ The system implementation utilizes a Raspberry Pi 4 as the central controller, c
 
    Objects too close (<130mm) or too far (>300mm) are flagged as unreachable, as they would require extreme joint configurations that could risk collisions or exceed the robot's mechanical limits.
 
-   ![Range diagram showing all zones](https://i.imgur.com/0krjli4_d.png?maxwidth=520&shape=thumb&fidelity=high)
+   ![Range diagram showing all zones](https://i.imgur.com/3sdXB5P_d.png?maxwidth=520&shape=thumb&fidelity=high)
    
    *Figure 4: Workspace range zones showing short, normal, and long-range operational areas*
 
@@ -693,10 +693,6 @@ Table X – Detection accuracy and performance results
 *Table X: Summary of key test results against acceptance criteria*
 
 The distance-based zone system demonstrated significant improvements in reach capability, with successful manipulations across 92.8% of the robot's theoretical workspace. Safety validation testing confirmed 100% protection against illegal movements, with all attempted out-of-range operations correctly intercepted and safely aborted, fully meeting our ACC-02 safety acceptance criteria.
-
-![Workspace Coverage Comparison](https://i.imgur.com/placeholder2.png)
-*Figure Y: Comparison of workspace coverage before and after implementation of distance-based configuration*
-
 
 ### Material Purchase Plan and Costs
 
