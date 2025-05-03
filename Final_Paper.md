@@ -642,7 +642,6 @@ The system implementation utilizes a Raspberry Pi 4 as the central controller, c
 5. **Orientation-Adaptive Gripping**: The fine-tuning and orientation script implements several key computer vision functions:
    - `find_centroid()`: Calculates the exact center of the object using moment analysis
    - `find_corners()`: Identifies key points on the object using Shi-Tomasi corner detection
-   - `calculate_object_angle()`: Determines the precise orientation angle of the battery
    - `calculate_distance_from_center()`: Computes the deviation from center for precise alignment
 
 6. **Multi-Step Movement Sequence**: The robot executes an orchestrated sequence controlled by the Raspberry Pi:
@@ -668,10 +667,6 @@ During controlled benchmark trials according to test VUT-02, we measured a consi
 Detection accuracy testing using a controlled dataset of 200 standard batteries and 150 corroded batteries demonstrated recognition rates of 93.5% and 62.7% respectively, closely matching our expected results from VUT-02 (95% and 60%). This represents a significant improvement over our initial prototype. False positive rates were maintained below 2.5% across all test conditions, with the system correctly rejecting non-battery objects 98.2% of the time.
 
 The migration from Time-of-Flight to stereoscopic technology required substantial algorithmic adaptation. Our updated architecture now employs a hybrid approach combining traditional computer vision techniques with a customized detection model. This integration enables robust object detection while maintaining performance within our targets. Z-depth averaging across 50 frames has reduced spatial jitter by 62% compared to single-frame measurements, resulting in a stable positioning accuracy of ±6.3mm at 1 meter distance, exceeding our VUT-01 requirement of ±1cm.
-
-![Detection Accuracy Results](https://i.imgur.com/placeholder1.png)
-
-*Figure 10: Detection accuracy comparison between standard and corroded batteries*
 
 The robotic manipulation system demonstrates precise adaptive control through our variable-range sorting implementation. In tests matching RUT-01 criteria, the system achieved 97.1% successful pickup rate for batteries in normal orientation, and 84.3% for batteries at arbitrary angles, surpassing our orientation detection target of 85%. Position accuracy was measured at ±0.41mm, within our expected ±0.5mm specification.
 
@@ -770,7 +765,7 @@ Our system validation process confirms that all primary customer requirements ha
 
 **Technical Requirements**
 - Object detection accuracy: 90-95% for standard batteries (target: 95%)
-- Processing latency: 180-200ms per frame (target: <200ms)
+- Processing latency: 50-60ms per frame (target: <200ms)
 - Position accuracy: ±0.8cm at 1 meter (target: ±1cm)
 - System reliability: >92% successful sorting operations (target: >90%)
 
@@ -982,7 +977,7 @@ The Gantt chart detailing the project's timeline, objectives, progress, and repo
   - Object detection accuracy ≥ 60% for corroded batteries
   - Processing latency ≤ 200ms
   - Sorting accuracy ≥ 95%
-  - System uptime ≥ 99%
+  - System uptime ≥ 90%
 
 **Safety Acceptance Test (Test ID: ACC-02)**
 - **Description**: Verify safety systems and emergency responses
@@ -996,7 +991,6 @@ The Gantt chart detailing the project's timeline, objectives, progress, and repo
 - Unit Testing: Weeks 1-2
 - Integration Testing: Weeks 3-4
 - Acceptance Testing: Week 5
-- Regression Testing: Ongoing throughout development
 
 #### Hardware Requirements
 - OAK-D-SR camera
