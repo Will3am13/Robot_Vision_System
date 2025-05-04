@@ -7,7 +7,7 @@ This paper presents the development of an integrated robotic vision system that 
 
 The system architecture is built on a Raspberry Pi platform that serves as the central controller, coordinating between the OAK-D-SR camera, the secondary USB camera, and the MyCobot 280 robotic arm. The OAK-D-SR with its integrated Robotics Vision Core 2 (RVC2) handles primary vision processing and spatial localization on-device, communicating results to the Raspberry Pi via USB. This design is complemented by a secondary USB camera for fine-tuning gripper alignment and orientation. This multi-layered architecture was supported by detailed trade-off analyses and decision matrices that evaluated multiple processing options. The selected configuration achieves object detection accuracy exceeding 90% with a processing latency of less than 200ms per frame, while maintaining position accuracy within ±1cm at distances up to 1 meter.
 
-Key innovations include the development of an efficient dual-camera vision system built on the Raspberry Pi platform. The primary OAK-D-SR camera handles coarse object detection and depth estimation using its integrated Robotics Vision Core 2 (RVC2), while a secondary USB camera provides fine-grained alignment and orientation detection to handle edge cases such as batteries positioned at arbitrary angles. This multi-camera approach enables the system to reliably manipulate objects regardless of their orientation. Safety considerations are addressed through comprehensive coordinate validation, range checking, and fail-safe mechanisms that prevent the robot from attempting to reach positions that cause its joints to collide with each other or the environment.
+Key innovations include the development of an efficient dual-camera vision system built on the Raspberry Pi platform. The primary OAK-D-SR camera handles coarse object detection and depth estimation using its integrated Robotics Vision Core 2 (RVC2), while a secondary USB camera provides fine-grained alignment and orientation detection to handle edge cases such as batteries positioned at arbitrary angles. This multi-camera approach enables the system to manipulate objects regardless of their orientation reliably. Safety considerations are addressed through comprehensive coordinate validation, range checking, and fail-safe mechanisms that prevent the robot from attempting to reach positions that cause its joints to collide with each other or the environment.
 
 The project's implementation demonstrates several technical achievements, including successful object recognition with 90% accuracy for standard objects and 60% accuracy for detecting specific defects such as battery corrosion. The robotic control system, implemented on a Raspberry Pi using the MyCobot 280 Python SDK, demonstrates effective path planning and object manipulation capabilities, with distance-based optimization for different workspace zones. The dual-camera approach enables the system to handle edge cases and arbitrary object orientations that would be challenging for single-camera systems. The total system cost of approximately $1,247 includes components such as the Raspberry Pi, OAK-D-SR camera, supplementary USB camera, and Elephant Robotics MyCobot 280 robotic arm, positioning the solution as a highly cost-effective option in the industrial automation market.
 
@@ -139,9 +139,9 @@ Many factors were considered when determining the specific components of the pro
 
 These various concepts were then expounded on as a Concept Fan as shown in Figure 1.
 
-### Decision Making Methodology
+### Decision-Making Methodology
 
-After exploring many alreanatives to develop the system we developed a systematic approach to identify optimal components for a robotic vision system that fulfills customer requirements for safety, real-time performance, cost-effectiveness, accurate object localization, and precise robotic manipulation. Using structured decision matrices, we evaluated various technologies against weighted criteria derived directly from these requirements.
+After exploring many alreanatives to develop the system, we developed a systematic approach to identify optimal components for a robotic vision system that fulfills customer requirements for safety, real-time performance, cost-effectiveness, accurate object localization, and precise robotic manipulation. Using structured decision matrices, we evaluated various technologies against weighted criteria derived directly from these requirements.
 
 #### Initial Concept Generation
 
@@ -183,7 +183,7 @@ These components were then evaluated individually to determine the optimal confi
 
 ### Sensing Unit Selection
 
-The customer requirement for "accurate object localization" demands a sensing technology capable of precise depth measurement in dynamic environments. To select an optimal camera, we evaluated three primary sensing technologies, steroscopic, Time-of-Flight, and LiDAR. The pairwise comparison matrix below assigns weights to each criterion, with accuracy (weight: 0.42) and range (weight: 0.28) prioritized given our need for reliable depth perception in varied lighting conditions.
+The customer requirement for "accurate object localization" demands a sensing technology capable of precise depth measurement in dynamic environments. To select an optimal camera, we evaluated three primary sensing technologies: stereoscopy, Time-of-Flight, and LiDAR. The pairwise comparison matrix below assigns weights to each criterion, with accuracy (weight: 0.42) and range (weight: 0.28) prioritized given our need for reliable depth perception in varied lighting conditions.
 
 **Table 4: Pairwise Comparison Matrix for Sensing Unit**
 
@@ -194,7 +194,7 @@ The customer requirement for "accurate object localization" demands a sensing te
 | **Range** | 0.50 | 2 | 1 | 3 | 0.28 |
 | **Processing** | 0.25 | 0.50 | 0.3 | 1 | 0.14 |
 
-Using these weights, we evaluated three sensing units availiabe to market in Table 3.
+Using these weights, we evaluated three sensing units available to the market in Table 5.
 
 **Table 5: Decision Matrix for Sensing Unit**
 
@@ -215,11 +215,11 @@ We also analyzed the strengths and weaknesses of different vision technologies t
 | Stereoscopic Vision | - Lower cost<br>- Rich color information<br>- Passive sensing | - Lighting dependent<br>- Limited range accuracy<br>- Computationally intensive |
 | Time-of-Flight | - High distance accuracy<br>- Operates in various lighting conditions<br>- Provides direct 3D point cloud | - High equipment cost<br>- Lacks color information<br>- Sensitive to weather conditions |
 
-While the OAK-D-ToF initially emerged as promising for its advanced depth-sensing capabilities, we discovered it arrived without necessary calibration data, rendering it unusable. Consequently, we selected the OAK-D-SR stereoscopic camera, which scored the next highest overall in our decision matrix, offering good performance in close-range applications where most of our depth measurements would take place.
+While the OAK-D-ToF initially emerged as promising for its advanced depth-sensing capabilities, we discovered it arrived without the necessary calibration data, rendering it unusable. Consequently, we selected the OAK-D-SR stereoscopic camera, which scored the next highest overall in our decision matrix, offering good performance in close-range applications where most of our depth measurements would take place.
 
 ### Processing Unit Selection
 
-For the system's processing capabilities, we evaluated four criteria: speed, power consumption, cost, and flexibility, with assigned weights shown in Table 5.
+For the system's processing capabilities, we evaluated four criteria: speed, power consumption, cost, and flexibility, with assigned weights shown in Table 7.
 
 **Table 7: Pairwise Comparison Matrix for Processing Unit**
 
@@ -230,7 +230,7 @@ For the system's processing capabilities, we evaluated four criteria: speed, pow
 | **Cost** | 0.25 | 0.50 | 1 | 0.30 | 0.12 |
 | **Flexibility** | 0.50 | 2 | 3 | 1 | 0.30 |
 
-Using these weights, we evaluated four processing options in Table 6.
+Using these weights, we evaluated four processing options in Table 8.
 
 **Table 8: Decision Matrix for Processing Unit**
 
@@ -267,11 +267,11 @@ To determine the optimal system controller for integrating our chosen components
 | Community Support | 0.10 | 9 | 8 | 7 | 7 |
 | **Total Score** | 1.00 | **8.55** | **8.30** | **7.18** | **7.50** |
 
-Based on this analysis, the Raspberry Pi 4 emerged as the optimal system controller with the highest overall score of 8.55. It satisfies the customer requirement for "cost-effectiveness" while delivering sufficient processing power for real-time performance. Its extensive I/O options support integration with both camera systems and the robotic arm, vital for achieving the "accurate robotic manipulation" requirement. The robust community support enables rapid development and troubleshooting, addressing the "reliability" requirement, while its cost efficiency allowed allocation of budget to other critical components.
+Based on this analysis, the Raspberry Pi 4 emerged as the optimal system controller with the highest overall score of 8.55. It satisfies the customer's requirement for "cost-effectiveness" while delivering sufficient processing power for real-time performance. Its extensive I/O options support integration with both camera systems and the robotic arm, vital for achieving the "accurate robotic manipulation" requirement. The robust community support enables rapid development and troubleshooting, addressing the "reliability" requirement, while its cost efficiency allows allocation of budget to other critical components.
 
 ### AI Algorithm Selection
 
-To identify the optimal algorithms for our vision system, we conducted a pairwise comparison of critical criteria shown in Table 9.
+To identify the optimal algorithms for our vision system, we conducted a pairwise comparison of critical criteria shown in Table 11.
 
 **Table 11: Pairwise Comparison Matrix for AI Algorithm Selection**
 
@@ -282,7 +282,7 @@ To identify the optimal algorithms for our vision system, we conducted a pairwis
 | **Scal.** | 0.30 | 0.50 | 1 | 2 | 0.20 |
 | **Integ.** | 0.25 | 0.30 | 0.50 | 1 | 0.10 |
 
-Using these weights, we evaluated four primary algorithms in Table 10.
+Using these weights, we evaluated four primary algorithms in Table 12.
 
 **Table 12: Decision Matrix for AI Algorithms**
 
@@ -298,7 +298,7 @@ Object detection scored highest overall due to its processing speed and scalabil
 
 ### Robotic Arm Selection
 
-We evaluated three 6-axis robotic arms against criteria essential for our application, as shown in Table 11.
+We evaluated three 6-axis robotic arms against criteria essential for our application, as shown in Table 13.
 
 **Table 13: Robotic Arm Comparison**
 
@@ -344,15 +344,15 @@ This distributed processing approach optimizes performance by leveraging the str
 
 1. **Safety and reliability**: Achieved through accurate object detection models as well as pose estimation
 2. **Real-time performance**: Enabled by the SoC architecture of the OAK-D-SR and efficient processing on the Raspberry Pi
-3. **Cost-effectiveness**: Attained through strategic component selection prioritizing value
+3. **Cost-effectiveness**: Attained through strategic component selection, prioritizing value
 4. **Accurate object localization**: Delivered by precise depth sensing and object detection algorithms
 5. **Accurate robotic manipulation**: Ensured by integration of vision data with the MyCobot's control system
 
-The final system is optimized for quality assurance in identifying 9-V batteries, specifically distinguishing between corroded and non-corroded batteries, demonstrating practical application of our robotic vision solution.
+The final system is optimized for quality assurance in identifying 9-V batteries, specifically distinguishing between corroded and non-corroded batteries, demonstrating the practical application of our robotic vision solution.
 
 # Technical Requirements
 
-Our project develops a real-time robotic vision system using the OAK-D-SR stereoscopic camera with an integrated SoC and MyCobot 280 robotic arm with adaptive gripper. This configuration has a total cost of $1,200 while satisfying functional and technical requirements.
+Our project develops a real-time robotic vision system using the OAK-D-SR stereoscopic camera with an integrated SoC and MyCobot 280 robotic arm with an adaptive gripper. This configuration has a total cost of $1,200 while satisfying functional and technical requirements.
 
 ## Table 15: System and Marketing Requirements
 
@@ -408,7 +408,7 @@ Our implementation addresses these priorities through:
 - A dual-camera approach combining the OAK-D-SR for broad detection with a secondary USB camera for precise alignment
 - Distributed processing between the OAK-D-SR's onboard RVC2 and Raspberry Pi maintaining processing speeds below our 200ms threshold
 
-This architecture balances accuracy, flexibility, and speed within cost constraints of our $1,200 budget, meeting the 95% detection accuracy and ±1cm localization precision requirements at 1 meter range.
+This architecture balances accuracy, flexibility, and speed within the cost constraints of our $1,200 budget, meeting the 95% detection accuracy and ±1cm localization precision requirements at 1 meter range.
 
 The House of Quality analysis shaped our design by prioritizing customer needs against technical capabilities. It highlights areas where current market offerings fall short of customer needs, specifically in cost-effective solutions that maintain adequate accuracy.
 
@@ -450,7 +450,7 @@ The level one functional design breaks the level zero design into subsystems. Fo
 
 *Figure 4: Level One Camera System Functionality*
 
-To further decompose the system and necessary components, we need to look at the individual subsystems.
+To further decompose the system and its necessary components, we need to look at the individual subsystems.
 
 ![Flowchart for Robotic Vision System](https://i.imgur.com/Yv3Zxz4_d.png?maxwidth=520&shape=thumb&fidelity=high)
 
@@ -492,7 +492,7 @@ This multi-camera approach significantly improves the reliability of object mani
 
 The project adheres to several crucial industry standards that govern robotic systems and vision processing equipment. For safety compliance, the system follows ISO 10218-1:2011 and ISO/TS 15066:2016 standards for collaborative robots, ensuring safe human-robot interaction in shared workspaces. 
 
-In terms of communication protocols, the system utilizes standards-compliant interfaces including IEEE 802.3 for network communication and USB specifications for camera connectivity.
+In terms of communication protocols, the system utilizes standards-compliant interfaces, including IEEE 802.3 for network communication and USB specifications for camera connectivity.
 
 ## Development Plan
 
@@ -562,10 +562,10 @@ The following algorithms define the core computational processes essential for o
 7. Close the gripper
 
 **Sorting Control System (Raspberry Pi)**
-1. Based on object class, select appropriate destination bin (Corroded vs. Non-Corroded)
-2. Calculate path to destination
+1. Based on object class, select the appropriate destination bin (Corroded vs. Non-Corroded)
+2. Calculate the path to the destination
 3. Execute sorting movement
-4. Open gripper to release object at destination
+4. Open the gripper to release the object at the destination
 5. Return to neutral position
 6. Log sorting operation
 
@@ -581,15 +581,15 @@ The overall project plan is to establish both a comprehensive vision system as w
 
 ### Completed Tasks and Results
 
-A collection of the major tasks that have been completed are detailed in the sections below.
+A collection of the major tasks that have been completed is detailed in the sections below.
 
 
 ### Major Tasks Completed
 
-We've successfully completed all critical development tasks for the battery detection and sorting system, including:
+We've completed all critical development tasks for the battery detection and sorting system, including:
 
 - Implementation of the dual-camera vision system with integrated depth sensing
-- Development of custom coordinate transformation algorithm using Ridge regression
+- Development of a custom coordinate transformation algorithm using Ridge regression
 - Development of a custom object detection and classification model
 - Creation of an adaptive distance-based configuration system
 - Implementation of the Z-depth averaging for improved stability
@@ -642,15 +642,15 @@ The system implementation utilizes a Raspberry Pi 4 as the central controller, c
 5. **Orientation-Adaptive Gripping**: The fine-tuning and orientation script implements several key computer vision functions:
    - `find_centroid()`: Calculates the exact center of the object using moment analysis
    - `find_corners()`: Identifies key points on the object using Shi-Tomasi corner detection
-   - `calculate_distance_from_center()`: Computes the deviation from center for precise alignment
+   - `calculate_distance_from_center()`: Computes the deviation from the center for precise alignment
 
 6. **Multi-Step Movement Sequence**: The robot executes an orchestrated sequence controlled by the Raspberry Pi:
    - Moving to a hover position above the target
-   - Adjusting gripper orientation to match detected object angle
+   - Adjusting gripper orientation to match the detected object angle
    - Precise descent to the grip position
    - Adaptive gripper activation with force control
    - Return to standby position
-   - Movement to appropriate sorting bin
+   - Movement to the appropriate sorting bin
    - Object release
    - Return to home position
 
@@ -664,11 +664,11 @@ Our comprehensive testing has revealed detailed performance metrics for the robo
 
 During controlled benchmark trials according to test VUT-02, we measured a consistent processing rate of 200ms per frame across 500 test frames, with minimal variance (±15ms) even under varying lighting conditions. This meets our target of < 200ms processing time per frame. The system successfully achieved parallel processing of up to 10 distinct objects simultaneously without significant performance degradation.
 
-Detection accuracy testing using a controlled dataset of 200 standard batteries and 150 corroded batteries demonstrated recognition rates of 93.5% and 62.7% respectively, closely matching our expected results from VUT-02 (95% and 60%). This represents a significant improvement over our initial prototype. False positive rates were maintained below 2.5% across all test conditions, with the system correctly rejecting non-battery objects 98.2% of the time.
+Detection accuracy testing using a controlled dataset of 200 standard batteries and 150 corroded batteries demonstrated recognition rates of 93.5% and 62.7%, respectively, closely matching our expected results from VUT-02 (95% and 60%). This represents a significant improvement over our initial prototype. False positive rates were maintained below 2.5% across all test conditions, with the system correctly rejecting non-battery objects 98.2% of the time.
 
 The migration from Time-of-Flight to stereoscopic technology required substantial algorithmic adaptation. Our updated architecture now employs a hybrid approach combining traditional computer vision techniques with a customized detection model. This integration enables robust object detection while maintaining performance within our targets. Z-depth averaging across 50 frames has reduced spatial jitter by 62% compared to single-frame measurements, resulting in a stable positioning accuracy of ±6.3mm at 1 meter distance, exceeding our VUT-01 requirement of ±1cm.
 
-The robotic manipulation system demonstrates precise adaptive control through our variable-range sorting implementation. In tests matching RUT-01 criteria, the system achieved 97.1% successful pickup rate for batteries in normal orientation, and 84.3% for batteries at arbitrary angles, surpassing our orientation detection target of 85%. Position accuracy was measured at ±0.41mm, within our expected ±0.5mm specification.
+The robotic manipulation system demonstrates precise adaptive control through our variable-range sorting implementation. In tests matching RUT-01 criteria, the system achieved a 97.1% successful pickup rate for batteries in normal orientation, and 84.3% for batteries at arbitrary angles, surpassing our orientation detection target of 85%. Position accuracy was measured at ±0.41mm, within our expected ±0.5mm specification.
 
 **Table 19: Summary of key test results against acceptance criteria**
 | Test parameter                | Requirement            | Result (mean ± Δ) | Verdict |
@@ -706,7 +706,7 @@ The distance-based zone system demonstrated significant improvements in reach ca
 
 The project addresses several critical ethical considerations throughout its development and implementation. Regarding safety, the system incorporates comprehensive safety validation through continuous coordinate checking and range verification for all robot movements. Emergency stop capabilities are implemented in software, and detailed user safety protocols govern all operational aspects.
 
-Environmental impact has been carefully considered in the design process. The system is designed to aid in battery recycling efforts, contributing directly to sustainability by enabling efficient sorting of corroded batteries that might otherwise be discarded improperly. The system employs energy-efficient design principles through the use of the integrated RVC2 processor, which minimizes power consumption compared to separate processing solutions.
+Environmental impact has been carefully considered in the design process. The system is designed to aid in battery recycling efforts, contributing directly to sustainability by enabling the efficient sorting of corroded batteries that might otherwise be discarded improperly. The system employs energy-efficient design principles through the use of the integrated RVC2 processor, which minimizes power consumption compared to separate processing solutions.
 
 Privacy considerations have been addressed by ensuring the system only processes vision data related to the specific task of battery detection and classification. No additional data is collected or stored, and all processing occurs on-device without requiring cloud connectivity, which eliminates potential data exposure concerns.
 
@@ -722,7 +722,7 @@ This project aligns with ABET and the LMU Mission through several key goals:
 
 **Social Impact**
 - Safety-focused design for collaborative human-robot environments
-- Sustainable development promoting proper battery recycling
+- Sustainable development promotes proper battery recycling
 - Ethical engineering practices throughout the development cycle
 - Potential community benefits through improved recycling capabilities
 
@@ -732,7 +732,7 @@ This project aligns with ABET and the LMU Mission through several key goals:
 - Professional development through real-world engineering challenges
 - Exposure to cutting-edge technologies in an accessible format
 
-These elements combine to create a learning experience that aligns with both ABET requirements and LMU's educational mission to promote the education of the whole person and service of faith and promotion of justice.
+These elements combine to create a learning experience that aligns with both ABET requirements and LMU's educational mission to promote the education of the whole person and service of faith, and promotion of justice.
 
 ### Compliance with IEEE Code of Ethics
 
