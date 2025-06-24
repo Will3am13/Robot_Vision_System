@@ -67,4 +67,4 @@ The system architecture is built on a Raspberry Pi platform that serves as the c
 
 ## Authors
 - William Dayton
-- Antonio Coelho
+- Antonio Augusto Coelho
